@@ -60,6 +60,19 @@ Polecenie sprawdza stronę, gotowość PostgreSQL i anonimową sesję. Nie tworz
 3. Sprawdź zwycięzcę, wyloguj się i zaloguj ponownie — statystyki powinny zostać.
 4. Po restarcie usługi ponownie sprawdź logowanie i statystyki. Trwające pokoje nie są przywracane.
 
+## 5. Dodanie gry do telefonów
+
+Użyj rzeczywistego adresu **HTTPS z Render**; instalacja nie wymaga dodatkowej konfiguracji hostingu.
+
+- **Na iPhonie żony:** otwórz link w Safari → Udostępnij → Dodaj do ekranu początkowego → Dodaj. Jeśli jest dostępne „Otwórz jako aplikację”, pozostaw włączone. Następnie uruchom Race Focus z ikony.
+- **Na Androidzie:** otwórz link w Chrome i wybierz Zainstaluj aplikację; opcja może też być w menu pod nazwą Dodaj do ekranu głównego.
+- Załóżcie dwa oddzielne konta. Jeżeli po instalacji aplikacja ponownie prosi o logowanie, użyj tego samego loginu i hasła co na stronie.
+- Jedno z Was tworzy pokój, drugie wpisuje kod. Możecie korzystać z różnych sieci, np. Wi‑Fi i internetu komórkowego.
+
+Przed pierwszą wspólną grą sprawdźcie na obu telefonach: uruchomienie z ikony bez paska przeglądarki, logowanie, wybór liczb i widoczność całej planszy. Zmiana aplikacji na iOS może uśpić połączenie, dlatego pozostańcie w grze do zakończenia pojedynku. Podczas aktualizacji nie trwa mecz — aplikacja nie przeładowuje rozgrywki automatycznie.
+
+Bez internetu dostępny jest wyłącznie ekran informacyjny, nie trening ani pojedynki. Automatyczne testy obejmują Chromium z emulacją telefonu; instalację w systemowym Safari trzeba jeszcze potwierdzić na fizycznym iPhonie pod opublikowanym adresem.
+
 ## Ograniczenia darmowej wersji
 
 Render Free może usypiać serwer po bezczynności, a Neon może usypiać bazę. Pierwsze otwarcie po przerwie może potrwać dłużej. Bieżące limity godzin, transferu i bazy sprawdzisz w panelach dostawców. Nie dodawaj automatycznego pingowania w celu obchodzenia usypiania.

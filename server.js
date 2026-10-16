@@ -97,7 +97,10 @@ export async function createApp({ database = process.env.DATABASE_URL || process
     const history = await db.all(`SELECT m.id, m.mode, m.size, m.finished_at, m.reason, r.elapsed, r.errors, r.score, r.outcome, (SELECT u.username FROM results rr JOIN users u ON u.id=rr.user_id WHERE rr.match_id=m.id AND rr.user_id<>?) opponent FROM results r JOIN matches m ON m.id=r.match_id WHERE r.user_id=? ORDER BY m.id DESC LIMIT 20`, req.user.id, req.user.id);
     res.json({ totals, records, history });
   });
-  app.use(express.static(resolve(root, 'public')));
+  app.use(express.static(resolve(root, 'public'), { setHeaders(res, path) {
+    if (path.endsWith('/sw.js')) { res.setHeader('Cache-Control', 'no-cache'); res.setHeader('Service-Worker-Allowed', '/'); }
+    if (path.endsWith('/manifest.webmanifest')) res.setHeader('Content-Type', 'application/manifest+json');
+  } }));
   app.use((err, req, res, next) => { console.error('Błąd żądania:', err.code || err.status || 'internal'); res.status(err.status || 503).json({ error: err.status === 400 ? 'Nieprawidłowe dane.' : 'Nie udało się wykonać operacji. Spróbuj ponownie za chwilę.' }); });
   const server = createServer(app);
   const wss = new WebSocketServer({ noServer: true, maxPayload: 2048 });

@@ -11,6 +11,7 @@
     "dev": "node --watch server.js",
     "test": "node --test test/*.test.js",
     "test:browser": "node test/browser.js",
+    "test:pwa": "node test/pwa.js",
     "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {

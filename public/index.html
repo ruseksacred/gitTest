@@ -2,12 +2,19 @@
 <html lang="pl">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#111512">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Race Focus">
   <meta name="description" content="Race Focus — trenuj koncentrację i rywalizuj w pojedynkach z liczbami.">
   <title>Race Focus — trening koncentracji</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png">
   <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/pwa.css">
   <script type="module" src="/app.js"></script>
 </head>
 <body>
@@ -17,7 +24,10 @@
     <div class="account" id="account"><button class="button small secondary" data-action="auth">Zaloguj się <span>→</span></button></div>
   </header>
   <main>
+    <div id="network-notice" class="pwa-notice network-notice" role="status" hidden>Brak internetu. Gra wymaga połączenia. Po jego przywróceniu połącz się ponownie; rozpoczęty pojedynek może zakończyć się walkowerem.</div>
+    <div id="update-notice" class="pwa-notice" role="status" hidden><span id="update-text">Nowa wersja Race Focus jest gotowa.</span><button class="button small secondary" id="update-button">Zaktualizuj</button></div>
     <section class="intro"><div><div class="eyebrow"><span class="live-dot"></span> MENTAL PERFORMANCE LAB</div><h1>Przewaga zaczyna się<br>w <em>Twojej głowie.</em></h1><p>Znajdź rytm. Wyostrz koncentrację. Pobij swój czas.</p></div><div class="intro-art" aria-hidden="true"><div class="track track-one"></div><div class="track track-two"></div><span class="track-number">01</span><span class="track-label">FOCUS / REACT / REPEAT</span><span class="track-car"></span></div></section>
+    <section id="install-card" class="install-card" aria-label="Instalacja aplikacji"><img src="/icons/icon-192.png" width="42" height="42" alt=""><div><strong>Race Focus na ekranie Twojego telefonu</strong><p>Własna ikona, osobne okno. Ta sama gra i Twoje wyniki.</p></div><button class="button small secondary" id="install-button">Dodaj do ekranu</button></section>
     <div class="workspace">
       <section class="training-panel" aria-label="Rozgrywka">
         <div class="panel-heading"><div><span class="section-index">01 /</span><h2>Number sprint</h2></div><span class="pill">KONCENTRACJA + REFLEKS</span></div>
@@ -43,6 +53,7 @@
   </main>
   <div id="connection-banner" class="connection-banner" hidden><span id="connection-message">Połączenie przerwane.</span><button class="button small secondary" data-action="reconnect">Połącz ponownie</button></div>
   <div class="toast" id="toast" role="status" hidden></div>
+  <dialog id="install-dialog" class="install-dialog" aria-labelledby="install-title"><button class="dialog-close" id="close-install" aria-label="Zamknij instrukcję">×</button><span class="eyebrow">ZAWSZE POD RĘKĄ</span><h2 id="install-title">Race Focus na telefonie</h2><ol id="install-steps"></ol><p id="install-note" class="install-note">Gra wymaga internetu. Po instalacji możesz potrzebować ponownego logowania. Każdy gracz korzysta z własnego konta.</p></dialog>
   <dialog id="auth-dialog"><button class="dialog-close" data-action="close-auth" aria-label="Zamknij">×</button><span class="eyebrow">DOŁĄCZ DO STAWKI</span><h2 id="auth-title">Witaj na starcie.</h2><p id="auth-description">Zaloguj się i wróć do walki o setne sekundy.</p><form id="auth-form"><label for="username">Login</label><input id="username" name="username" autocomplete="username" minlength="3" maxlength="20" pattern="[a-zA-Z0-9_]{3,20}" required placeholder="Twój pseudonim"><label for="password">Hasło</label><input id="password" name="password" type="password" autocomplete="current-password" minlength="8" maxlength="128" required placeholder="Minimum 8 znaków"><p id="auth-error" class="form-error" role="alert"></p><button type="submit" class="button primary" id="auth-submit">Zaloguj się →</button></form><button class="auth-switch" data-action="switch-auth">Nie masz konta? <strong>Załóż konto</strong></button></dialog>
 </body>
 </html>

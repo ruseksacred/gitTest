@@ -1,0 +1,18 @@
+{
+  "id": "/",
+  "name": "Race Focus — trening koncentracji",
+  "short_name": "Race Focus",
+  "description": "Trenuj z liczbami i rywalizuj ze znajomymi w pojedynkach na czas.",
+  "lang": "pl",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#111512",
+  "theme_color": "#111512",
+  "categories": ["games", "sports"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

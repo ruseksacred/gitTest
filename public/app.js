@@ -1,16 +1,21 @@
+import { initPwa } from './pwa.js';
+
 const $ = selector => document.querySelector(selector);
+const pwa = initPwa();
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const seconds = score => score == null ? '—' : (score / 100).toFixed(2);
 let user = null, socket = null, mode = 'solo', size = 4, game = null, stats = null, authMode = 'login', renderKey = '', serverOffset = 0, toastTimer, connected = false;
 const dialog = $('#auth-dialog');
 function toast(message) { $('#toast').textContent = message; $('#toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { $('#toast').hidden = true; }, 4500); }
 async function api(path, body) {
+  if (!navigator.onLine) throw Error('Brak internetu. Połącz się z siecią i spróbuj ponownie.');
   const response = await fetch(`/api/${path}`, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const data = await response.json();
   if (!response.ok) throw Error(data.error || 'Nie udało się połączyć z serwerem.');
   return data;
 }
 function command(action, payload = {}) {
+  if (!navigator.onLine) { toast('Brak internetu. Gra wymaga połączenia z serwerem.'); return; }
   if (!user) { openAuth(); return; }
   if (!connected || socket?.readyState !== WebSocket.OPEN) { toast('Brak połączenia. Użyj przycisku „Połącz ponownie”.'); return; }
   socket.send(JSON.stringify({ action, ...payload }));
@@ -80,6 +85,7 @@ function shell(content) {
   return `<div class="game-body"><div class="game-top"><span class="eyebrow">${game.mode === 'solo' ? 'TRENING SOLO' : `POJEDYNEK / ${escape(game.code)}`} · ${game.size} × ${game.size}</span><button data-action="leave">${game.phase === 'complete' ? 'Wróć do centrum' : 'Opuść'} →</button></div>${content}<div id="leave-confirm" class="confirm-leave" hidden><p>${game.mode === 'duel' ? 'Wyjście po rozpoczęciu odliczania oznacza przegraną walkowerem.' : 'Bieżący trening nie zostanie zapisany.'}</p><div><button class="button small secondary" data-action="confirm-leave">Opuść grę</button><button class="button small primary" data-action="cancel-leave">Zostań</button></div></div></div>`;
 }
 function renderGame() {
+  pwa.setGameActive(game && (game.phase !== 'complete' || game.saved === false));
   document.body.classList.toggle('in-game', !!game);
   $('#setup').hidden = !!game; $('#game').hidden = !game;
   if (!game) { renderKey = ''; $('#game').innerHTML = ''; setup(); return; }
@@ -159,6 +165,16 @@ $('#auth-form').addEventListener('submit', async event => {
   try { const data = await api(authMode, { username: $('#username').value, password: $('#password').value }); user = data.user; $('#password').value = ''; dialog.close(); updateAccount(); connect(); await refreshStats(); toast(authMode === 'register' ? 'Konto gotowe. Wybierz tryb i ruszaj na start.' : 'Witaj z powrotem na torze.'); }
   catch (error) { $('#auth-error').textContent = error.message; }
   finally { $('#auth-submit').disabled = false; }
+});
+window.addEventListener('offline', () => {
+  document.querySelectorAll('#game .number-cell, #ready-button').forEach(button => { button.disabled = true; });
+  socket?.close(1000, 'Brak internetu');
+});
+window.addEventListener('online', () => {
+  if (user && !connected) {
+    $('#connection-message').textContent = 'Internet jest dostępny. Połącz się ponownie, aby sprawdzić stan konta i rozpocząć nową grę.';
+    $('#connection-banner').hidden = false;
+  }
 });
 setup(); requestAnimationFrame(tick);
 try { user = (await api('me')).user; updateAccount(); if (user) { connect(); await refreshStats(); } } catch { toast('Serwer jest niedostępny. Spróbuj odświeżyć stronę.'); }

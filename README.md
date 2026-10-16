@@ -27,16 +27,35 @@ Serwer nasłuchuje na porcie **3000**, na wszystkich interfejsach. `npm run dev`
 - Osobne rekordy i średnie solo dla każdego rozmiaru; bilans wygranych, przegranych i remisów; ostatnie wyniki z karami. Interfejs pokazuje 6 ostatnich, API zwraca 20.
 - Jedna aktywna karta gry na konto. Druga karta pokazuje komunikat i pozwala ponownie połączyć się po zamknięciu pierwszej.
 
+## Instalacja na telefonie (PWA)
+
+Po opublikowaniu pod adresem **HTTPS** gra może mieć własną ikonę i otwierać się w osobnym oknie, bez paska przeglądarki. Te same konta, pokoje i wyniki działają na Androidzie, iPhonie i komputerze. Każdy gracz używa własnego konta i tego samego adresu serwera.
+
+- **iPhone / iPad:** otwórz link w Safari → Udostępnij → Dodaj do ekranu początkowego → Dodaj. Jeśli Safari pokazuje opcję „Otwórz jako aplikację”, pozostaw ją włączoną. Otwórz grę z nowej ikony.
+- **Android:** otwórz link w Chrome → Zainstaluj aplikację. Jeżeli przeglądarka nie pokazuje przycisku automatycznie, użyj menu → Dodaj do ekranu głównego / Zainstaluj aplikację.
+- Przycisk **Dodaj do ekranu** w grze pokazuje instrukcję odpowiednią dla urządzenia; w obsługiwanej przeglądarce uruchamia systemowy proces instalacji.
+
+Po instalacji na iOS może być potrzebne ponowne logowanie, ponieważ system może używać oddzielnej sesji dla aplikacji. Samo zamknięcie Safari lub instalacja podczas meczu może przerwać połączenie — instaluj z ekranu głównego gry.
+
+**Internet jest wymagany także do treningu solo.** Po pierwszym poprawnym otwarciu aplikacja zapisuje wyłącznie publiczny ekran informujący o braku połączenia i jego zasoby. Nie zapisuje w cache kont, haseł, odpowiedzi API, wyników ani plansz. Nie kolejkuje kliknięć ani wyników do późniejszej synchronizacji. Przerwane pojedynki nadal podlegają regule walkowera.
+
+Nowa wersja pojawia się jako komunikat z przyciskiem **Zaktualizuj**. Komunikat jest ukryty, a aktualizacja zablokowana podczas gry, w pokoju oraz przy niezapisanym wyniku. Aktualizacja nigdy sama nie odświeża meczu, również gdy uruchomiono ją w innej karcie. Przy zmianie zasobów offline zwiększ wersję cache w `public/sw.js`.
+
+To wersja instalowana ze strony. Publikacja w App Store i Google Play jest odrębnym etapem.
+
 ## Testy
 
 ```bash
 npm test
 npm run test:browser
+npm run test:pwa
 ```
 
 Testy serwera sprawdzają autoryzację, walidację, wszystkie rozmiary plansz, kary, wspólny start, remis, wyniki, walkower, limit czasu, granice pokoi, ponawianie zapisu po awarii bazy, HTTPS za reverse proxy oraz odtworzenie danych po restarcie. Korzystają z oddzielnych baz testowych. Zmienna `TEST_DATABASE_URL` pozwala uruchomić ten sam zestaw oraz test przeglądarkowy na PostgreSQL; instrukcja w [DEPLOY.md](DEPLOY.md).
 
 Test przeglądarkowy używa Playwright i systemowego Chromium pod `/usr/bin/chromium`. Na innym systemie ustaw `CHROMIUM_PATH` na plik wykonywalny przeglądarki. Uruchamia dwa oddzielne konteksty, w tym dotykowy widok telefonu, i przechodzi przez rejestrację, trening, pojedynek i ponowne logowanie. Zrzuty ekranu zapisuje w ignorowanym katalogu `test-results/`. Test używa `--no-sandbox` wyłącznie dla przeglądarki testowej w kontenerze.
+
+`npm run test:pwa` sprawdza manifest i rozmiary ikon, instrukcję iPhone’a, rzeczywisty cykl aktualizacji service workera podczas treningu, nawigację offline oraz brak danych konta w cache. Używa Chromium z emulacją telefonu; wywołanie systemowego okna instalacji jest symulowane. Nie zastępuje sprawdzenia instalacji na fizycznym iPhonie w Safari po wdrożeniu HTTPS.
 
 ## Dane i konfiguracja
 
@@ -65,6 +84,7 @@ Serwer kontroluje planszę, kolejność, start, kary i wyniki. Pomiar uwzględni
 - `server.js` — HTTP, konta, WebSocket i reguły rozgrywki.
 - `database.js` — SQLite lokalnie, PostgreSQL na hostingu, transakcje i weryfikacja TLS.
 - `public/` — interfejs bez etapu kompilacji i bez zewnętrznych fontów.
+- `public/manifest.webmanifest`, `public/pwa.js`, `public/sw.js`, `public/icons/` — instalacja PWA i publiczny ekran offline.
 - `test/game.test.js` — testy integracyjne API i protokołu gry.
 - `test/browser.js` — test dwóch użytkowników w Chromium.
 - `render.yaml`, `DEPLOY.md` — konfiguracja i instrukcja bezpłatnego wdrożenia.
