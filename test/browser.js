@@ -81,7 +81,36 @@ try {
   await a.locator('.result-time').waitFor(); await b.locator('.result-time').waitFor();
   await a.waitForFunction(() => document.querySelector('#total-wins').textContent === '1');
   await b.waitForFunction(() => document.querySelector('#total-losses').textContent === '1');
+  await a.waitForFunction(() => document.querySelector('#ranking-size').value === '7' && document.querySelector('#ranking-status').textContent.startsWith('1 przejazd'));
+  const roundIds = [];
+  roundIds.push(await a.locator('.ranking-new').getAttribute('data-run-id'));
+  for (const round of [2, 3]) {
+    assert.equal(await a.locator('[data-action="rematch"]').isEnabled(), true);
+    await a.locator('[data-action="rematch"]').click();
+    await a.waitForFunction(() => document.querySelector('#rematch-status').textContent.includes('Czekamy na rywala'));
+    assert.equal(await a.locator('[data-action="rematch"]').isDisabled(), true);
+    assert.equal(await b.locator('.result-time').isVisible(), true, 'One player cannot start the next round alone');
+    await b.locator('[data-action="rematch"]').tap();
+    await Promise.all([a.locator('[data-number="1"]').waitFor(), b.locator('[data-number="1"]').waitFor()]);
+    assert.match(await a.locator('.game-top').textContent(), new RegExp(`${code} · RUNDA ${round}`));
+    assert.match(await b.locator('.game-top').textContent(), new RegExp(`${code} · RUNDA ${round}`));
+    assert.equal(await b.locator('#race-errors').textContent(), '+0 s');
+    assert.deepEqual(await a.locator('[data-number]').allTextContents(), await b.locator('[data-number]').allTextContents());
+    for (let n = 1; n <= 49; n++) await a.locator(`[data-number="${n}"]`).click();
+    await a.waitForFunction(() => document.querySelector('#game-hint').textContent.startsWith('Meta!'));
+    for (let n = 1; n <= 49; n++) await b.locator(`[data-number="${n}"]`).tap();
+    await Promise.all([a.locator('.result-time').waitFor(), b.locator('.result-time').waitFor()]);
+    await a.waitForFunction(round => document.querySelector('#total-wins').textContent === String(round), round);
+    await a.waitForFunction(round => document.querySelector('#ranking-status').textContent.startsWith(`${round} przejazdy`), round);
+    roundIds.push(await a.locator('.ranking-new').getAttribute('data-run-id'));
+  }
+  assert.equal(new Set(roundIds).size, 3, 'Each round has its own ranked result');
   await a.screenshot({ path: 'test-results/results-desktop.png', fullPage: true });
+  assert.ok(await b.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Rematch controls fit the phone');
+  await b.locator('.training-panel').screenshot({ path: 'test-results/rematch-mobile.png' });
+  await b.locator('.result-actions [data-action="leave"]').click();
+  await a.waitForFunction(() => document.querySelector('#rematch-status').textContent.includes('opuścił pokój'));
+  assert.equal(await a.locator('[data-action="rematch"]').isDisabled(), true);
   await a.locator('[data-action="logout"]').click();
   await a.locator('[data-action="auth"]').click();
   // The dialog retains registration mode after the first successful registration.
@@ -89,11 +118,11 @@ try {
   await a.locator('#username').fill('ApexDriver');
   await a.locator('#password').fill('Browser-password-123');
   await a.locator('#auth-submit').click();
-  await a.waitForFunction(() => document.querySelector('#total-wins').textContent === '1');
+  await a.waitForFunction(() => document.querySelector('#total-wins').textContent === '3');
   await a.locator('[data-size="6"]').click();
   assert.notEqual(await a.locator('#best-time').textContent(), '—');
   assert.deepEqual(errors, []);
-  console.log('Browser checks passed: only sizes 4–7, 6×6 solo with penalty, 7×7 desktop/mobile duel, same board, stats after login, 320px phone layout, no JS errors.');
+  console.log('Browser checks passed: sizes 4–7, solo with penalty, three 7×7 rounds in one room, mutual readiness, independent rankings, departure, stats after login, narrow phone layout.');
 } finally {
   await browser.close(); await app.close(); await target.cleanup(); rmSync(directory, { recursive: true, force: true });
 }

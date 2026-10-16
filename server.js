@@ -35,7 +35,7 @@ export async function createApp({ database = process.env.DATABASE_URL || process
   // Render health probes must not keep a free Neon database awake all day.
   // /api/ready is the explicit database readiness check used during deployment.
   app.get('/api/health', (req, res) => res.json({ ok: true }));
-  app.get('/api/version', (req, res) => res.json({ release: 'boards-4-to-7', commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'local', transports: ['websocket', 'https'] }));
+  app.get('/api/version', (req, res) => res.json({ release: 'room-rematches-1', commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'local', transports: ['websocket', 'https'] }));
   app.get('/api/ready', async (req, res) => { await db.get('SELECT 1'); res.json({ ok: true, database: db.dialect }); });
   app.use('/api', (req, res, next) => {
     if (req.method !== 'GET' && (req.headers.origin && req.headers.origin !== expectedOrigin(req))) return res.status(403).json({ error: 'Niedozwolone pochodzenie żądania.' });
@@ -144,8 +144,12 @@ export async function createApp({ database = process.env.DATABASE_URL || process
     } catch { socket.write('HTTP/1.1 503 Service Unavailable\r\n\r\n'); socket.destroy(); }
   });
   const send = (client, data) => { if (client.ws.readyState === WebSocket.OPEN) client.ws.send(JSON.stringify(data)); };
+  const roomPlayersPresent = game => game.players.length === 2 && game.players.every(p => {
+    const c = clients.get(p.id);
+    return c?.game === game && !c.revoked && c.ws.readyState === WebSocket.OPEN;
+  });
   function state(game, id) {
-    return { type: 'state', game: { id: game.id, matchId: game.matchId ?? null, mode: game.mode, code: game.mode === 'duel' ? game.id : null, size: game.size, phase: game.phase, startAt: game.startAt, deadline: game.startAt ? game.startAt + roundMs : null, serverNow: Date.now(), board: ['racing', 'saving', 'complete'].includes(game.phase) ? game.board : [], reason: game.reason, saved: game.saved ?? null,
+    return { type: 'state', game: { id: game.id, round: game.round, matchId: game.matchId ?? null, mode: game.mode, code: game.mode === 'duel' ? game.id : null, canRematch: game.mode === 'duel' && game.phase === 'complete' && game.saved === true && roomPlayersPresent(game), size: game.size, phase: game.phase, startAt: game.startAt, deadline: game.startAt ? game.startAt + roundMs : null, serverNow: Date.now(), board: ['racing', 'saving', 'complete'].includes(game.phase) ? game.board : [], reason: game.reason, saved: game.saved ?? null,
       players: game.players.map(p => ({ id: p.id, username: p.username, ready: p.ready, next: p.next, errors: p.errors, elapsed: p.elapsed, score: p.score, outcome: p.outcome, me: p.id === id })) } };
   }
   function broadcast(game) { for (const p of game.players) { const c = clients.get(p.id); if (c?.game === game) send(c, state(game, p.id)); } }
@@ -155,6 +159,7 @@ export async function createApp({ database = process.env.DATABASE_URL || process
     if (game.phase === 'complete') return;
     clearTimeout(game.startTimer); clearTimeout(game.endTimer);
     game.phase = 'saving'; game.reason = reason; game.finishedAt = Date.now();
+    for (const p of game.players) p.ready = false;
     const [a, b] = game.players;
     if (game.mode === 'solo') a.outcome = 'solo';
     else if (loser) { for (const p of game.players) p.outcome = p.id === loser ? 'loss' : 'win'; }
@@ -176,7 +181,9 @@ export async function createApp({ database = process.env.DATABASE_URL || process
         });
         game.saved = true;
       } catch { game.saved = false; console.error('Nie udało się zapisać wyniku meczu. Można ponowić zapis.'); }
-      game.phase = 'complete'; rooms.delete(game.id); games.delete(game.id); broadcast(game);
+      game.phase = 'complete'; rooms.delete(game.id);
+      if (game.mode === 'solo' || !game.players.some(p => clients.get(p.id)?.game === game)) games.delete(game.id);
+      broadcast(game);
     })();
     return game.finishPromise;
   }
@@ -200,7 +207,14 @@ export async function createApp({ database = process.env.DATABASE_URL || process
       if (g.mode === 'duel') await finish(g, 'forfeit', c.user.id);
       else { clearTimeout(g.startTimer); clearTimeout(g.endTimer); games.delete(g.id); }
     }
-    c.game = null;
+    if (c.game === g) c.game = null;
+    if (g.phase === 'complete') {
+      // Keep the finished results intact for the remaining player, but cancel
+      // readiness as soon as either participant leaves the room.
+      for (const p of g.players) p.ready = false;
+      if (!g.players.some(p => clients.get(p.id)?.game === g) && games.get(g.id) === g) games.delete(g.id);
+      broadcast(g);
+    }
   }
   async function command(c, data) {
     if (!data || typeof data !== 'object') throw Error('Nieprawidłowe polecenie.');
@@ -209,20 +223,40 @@ export async function createApp({ database = process.env.DATABASE_URL || process
     const g = c.game;
     if (['solo', 'create', 'join'].includes(data.action)) {
       if (g && g.phase !== 'complete') throw Error('Najpierw zakończ lub opuść aktualną grę.');
+      if (g?.saved === false) throw Error('Najpierw ponów zapis poprzedniego wyniku.');
       if (data.action === 'join') {
         const room = rooms.get(String(data.code || '').trim().toUpperCase());
         if (!room || room.phase !== 'waiting') throw Error('Nie znaleziono dostępnego pokoju.');
         if (room.players.length >= 2) throw Error('Pokój jest pełny.');
+        if (g) await leave(c);
+        if (c.game || c.revoked || c.ws.readyState !== WebSocket.OPEN) return;
+        if (room.phase !== 'waiting' || room.players.length >= 2 || rooms.get(room.id) !== room) throw Error('Pokój nie jest już dostępny.');
         c.game = room; room.players.push(player(c)); broadcast(room); return;
       }
       if (![4, 5, 6, 7].includes(data.size)) throw Error('Wybierz rozmiar 4×4, 5×5, 6×6 lub 7×7.');
+      if (g) await leave(c);
+      if (c.game || c.revoked || c.ws.readyState !== WebSocket.OPEN) return;
       let id; do { id = randomBytes(4).toString('hex').slice(0, 6).toUpperCase(); } while (games.has(id));
-      const game = { id, saveKey: randomUUID(), mode: data.action === 'solo' ? 'solo' : 'duel', size: data.size, phase: 'waiting', players: [player(c)], board: [] };
+      const game = { id, round: 1, saveKey: randomUUID(), mode: data.action === 'solo' ? 'solo' : 'duel', size: data.size, phase: 'waiting', players: [player(c)], board: [] };
       c.game = game; games.set(id, game);
       if (game.mode === 'solo') start(game); else { rooms.set(id, game); broadcast(game); }
     } else if (data.action === 'leave') { await leave(c); send(c, { type: 'state', game: null }); }
     else if (data.action === 'retry-save') {
       if (g?.phase === 'complete' && g.saved === false) await persistResult(g);
+    }
+    else if (data.action === 'rematch') {
+      if (!g || g.mode !== 'duel' || g.phase !== 'complete') throw Error('Ta runda nie jest już dostępna do rewanżu.');
+      if (!g.saved) throw Error('Najpierw ponów zapis wyniku rundy.');
+      if (g.matchId !== data.matchId) throw Error('Ta runda nie jest już dostępna do rewanżu.');
+      if (!roomPlayersPresent(g)) throw Error('Rywal opuścił pokój. Utwórz nowy pokój, aby zagrać.');
+      g.players.find(p => p.id === c.user.id).ready = true;
+      if (!g.players.every(p => p.ready)) { broadcast(g); return; }
+      // A fresh match object and save key isolate timers, retries and results
+      // from previous rounds while both clients keep the same room code.
+      const next = { id: g.id, round: g.round + 1, saveKey: randomUUID(), mode: 'duel', size: g.size, phase: 'waiting', players: g.players.map(p => player(clients.get(p.id))), board: [] };
+      for (const p of next.players) clients.get(p.id).game = next;
+      games.set(next.id, next);
+      start(next);
     }
     else if (data.action === 'ready') {
       if (!g || g.phase !== 'waiting' || g.players.length !== 2) throw Error('Poczekaj na drugiego gracza.');
@@ -241,18 +275,22 @@ export async function createApp({ database = process.env.DATABASE_URL || process
   }
   wss.on('connection', (ws, user, token, clientId, http = false) => {
     const previous = clients.get(user.id);
-    let released = Promise.resolve();
+    let released = Promise.resolve(), resumed = null;
     if (previous) {
       if (!clientId || previous.clientId !== clientId || previous.tokenHash !== hash(token)) { ws.close(4001, 'Konto jest otwarte w innej karcie.'); return; }
       previous.revoked = true;
       clients.delete(user.id);
-      released = leave(previous);
+      if (previous.game?.phase === 'complete') {
+        resumed = previous.game; previous.game = null;
+        for (const p of resumed.players) p.ready = false;
+      } else released = leave(previous);
       previous.ws.terminate();
     }
-    const c = { ws, user, clientId, http, streamId: http ? randomBytes(16).toString('hex') : null, tokenHash: hash(token), revoked: false, game: null, alive: true, count: 0, window: Date.now() };
+    const c = { ws, user, clientId, http, streamId: http ? randomBytes(16).toString('hex') : null, tokenHash: hash(token), revoked: false, game: resumed, alive: true, count: 0, window: Date.now() };
     clients.set(user.id, c);
     if (http) send(c, { type: 'transport-ready', stream: c.streamId });
     send(c, { type: 'connected' });
+    if (resumed) broadcast(resumed);
     released.then(() => { if (previous && clients.get(user.id) === c) send(c, { type: 'refresh-stats' }); }).catch(() => console.error('Błąd zamykania poprzedniego połączenia.'));
     ws.on('pong', () => { c.alive = true; });
     c.receive = async raw => {

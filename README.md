@@ -19,6 +19,7 @@ Serwer nasłuchuje na porcie **3000**, na wszystkich interfejsach. `npm run dev`
 - Konta: login 3–20 znaków (litery ASCII, cyfry, podkreślenie), hasło 8–128 znaków, logowanie i wylogowanie.
 - Trening solo na planszy 4×4, 5×5, 6×6 lub 7×7.
 - Pojedynki online: pokój z kodem, dołączenie drugiej osoby, gotowość, wspólne odliczanie i identyczna plansza.
+- Wiele rund w jednym pokoju: po zapisaniu wyniku oboje wybieracie „Gotowość do kolejnej rundy”. Kod i rozmiar planszy pozostają te same, liczby są losowane od nowa, a numer rundy rośnie. Każda runda zapisuje się osobno w bilansie i rankingu. Wynik poprzedniej rundy pozostaje widoczny do potwierdzenia obu osób. Po wyjściu rywala gotowość jest anulowana; opuszczenie zakończonej rundy nie daje walkowera.
 - Plansza jest ujawniana dopiero po odliczaniu; trafione liczby przygasają.
 - Każdy błędny wybór aktywnej liczby dodaje 1 sekundę. Kliknięcia ukończonych pól są blokowane w interfejsie.
 - Wynik = czas na serwerze + kary, zaokrąglony do 0,01 sekundy. Równe wyniki oznaczają remis.
@@ -36,7 +37,7 @@ Po utracie połączenia aplikacja próbuje automatycznie połączyć się ponown
 
 Jeśli przeglądarka lub sieć blokuje WebSocket, aplikacja automatycznie przechodzi na połączenie przez HTTPS: zdarzenia płyną przez EventSource, a polecenia przez POST. Kolejność kliknięć jest zachowana, a weryfikacja konta nie odpytuje bazy przy każdym kliknięciu. Oba sposoby korzystają z tych samych pokoi, zasad i statystyk. Serwer jawnie dopuszcza własny adres WSS w polityce CSP, także dla Safari. Nieudane próby są ograniczone; błąd przy tworzeniu WebSocket nie pozostawia aplikacji z wiecznym napisem „Łączenie…”.
 
-Przerwanego meczu nie wznawiamy: nadal obowiązuje walkower, a kliknięcia i gotowość nie są wysyłane ponownie. Gdy zawiedzie kilka automatycznych prób, pozostaje przycisk „Połącz ponownie”. Inna karta tego samego konta nadal nie może przejąć gry. W następnej rundzie jedna osoba tworzy **nowy pokój**, a druga dołącza jego nowym kodem.
+Przerwanego meczu nie wznawiamy: nadal obowiązuje walkower, a kliknięcia i gotowość nie są wysyłane ponownie. Gdy zawiedzie kilka automatycznych prób, pozostaje przycisk „Połącz ponownie”. Inna karta tego samego konta nadal nie może przejąć gry. Rewanż działa, dopóki obie osoby pozostają w pokoju. Wymiana pozornie otwartego połączenia z tej samej karty po zakończonej rundzie zachowuje pokój i wymaga ponownego potwierdzenia gotowości. Po utracie miejsca w pokoju, odświeżeniu strony albo restarcie serwera jedna osoba tworzy nowy pokój, a druga dołącza jego kodem.
 
 ## Instalacja na telefonie (PWA)
 
@@ -73,7 +74,7 @@ Test przeglądarkowy używa Playwright i systemowego Chromium pod `/usr/bin/chro
 
 `npm run test:reconnect` rozgrywa trzy pojedynki z tymi samymi kontami: po pierwszym symuluje utratę internetu, a po drugim połączenie, które pozornie jest otwarte, ale nie odpowiada. Sprawdza kolejną rozgrywkę bez przeładowania strony, brak podwójnych wyników oraz ochronę przed drugą kartą.
 
-`npm run test:http` blokuje WebSocket dla obu graczy: jednemu odrzuca połączenie serwer, drugiemu przeglądarka zgłasza synchroniczny `SecurityError`. Sprawdza automatyczne przejście na HTTPS, dwa pojedynki przez HTTPS oraz pojedynek mieszany WebSocket/HTTPS, kolejność szybkich kliknięć, brak zapytań do bazy przy trafieniach, powrót po utracie internetu i skończoną liczbę nieudanych prób. `TEST_DATABASE_URL` pozwala sprawdzić ten sam scenariusz na PostgreSQL.
+`npm run test:http` blokuje WebSocket dla obu graczy: jednemu odrzuca połączenie serwer, drugiemu przeglądarka zgłasza synchroniczny `SecurityError`. Sprawdza automatyczne przejście na HTTPS, rewanż w tym samym pokoju przez HTTPS oraz pojedynek mieszany WebSocket/HTTPS, kolejność szybkich kliknięć, brak zapytań do bazy przy trafieniach, powrót po utracie internetu i skończoną liczbę nieudanych prób. `TEST_DATABASE_URL` pozwala sprawdzić ten sam scenariusz na PostgreSQL.
 
 `npm run test:ranking` sprawdza filtry, kary, stronicowanie, odporność na spóźnioną odpowiedź dla poprzedniego filtra, automatyczne umieszczenie rzeczywiście rozegranego treningu na drugiej stronie rankingu, widok telefonu oraz usunięcie historii z widoku po wylogowaniu. Testy API w `npm test` dodatkowo sprawdzają remisy, całą historię, prywatność wyników i walidację filtrów. Oba zestawy obsługują `TEST_DATABASE_URL`.
 

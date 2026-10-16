@@ -22,8 +22,10 @@ async function command(action, payload = {}) {
   if (!navigator.onLine) { toast('Brak internetu. Gra wymaga połączenia z serwerem.'); return; }
   if (!user) { openAuth(); return; }
   try {
-    // Only a new game/room can wait for reconnection. Never replay a timed hit.
-    if (['solo', 'create', 'join'].includes(action)) await connection.ensureAlive();
+    // Probe before starting a round. Never replay a timed hit or send readiness
+    // for a result that changed while the transport was reconnecting.
+    if (['solo', 'create', 'join', 'rematch'].includes(action)) await connection.ensureAlive();
+    if (action === 'rematch' && (game?.phase !== 'complete' || game.matchId !== payload.matchId || !game.canRematch)) { toast('Pokój nie jest już dostępny do rewanżu. Możesz utworzyć nowy.'); return; }
     connection.send(action, payload);
   } catch (error) { toast(error.message); }
 }
@@ -41,7 +43,7 @@ const connection = createGameConnection({
       }
       renderGame();
       if (game?.phase === 'complete') ranking.finished(game);
-      if (game?.phase === 'complete' || !game) refreshStats();
+      if (!game || (game.phase === 'complete' && (old?.phase !== 'complete' || old.matchId !== game.matchId || old.saved !== game.saved))) refreshStats();
     }
   },
   onDisconnect(reason) {
@@ -53,6 +55,7 @@ const connection = createGameConnection({
       if (interrupted && reason !== 'logout') toast('Połączenie przerwało pojedynek. Po ponownym połączeniu sprawdzimy wynik w statystykach.');
       else if (unsaved) toast('Utracono połączenie przed potwierdzeniem zapisu. Sprawdź ostatnie wyniki po ponownym połączeniu.');
     }
+    if (game?.phase === 'complete') { game.canRematch = false; for (const p of game.players) p.ready = false; renderGame(); }
     updateAccount();
   },
   onStatus({ state, message }) {
@@ -77,7 +80,7 @@ function setup() {
   document.querySelectorAll('[data-size]').forEach(b => { const selected = +b.dataset.size === size; b.classList.toggle('selected', selected); b.setAttribute('aria-pressed', selected); });
   $('#size-description').textContent = `${size ** 2} liczb · ${{ 4: 'standard', 5: 'wyzwanie', 6: 'ekspert', 7: 'mistrz' }[size]}`;
   $('#mode-title').textContent = mode === 'solo' ? 'Ty kontra stoper.' : 'Dwa kokpity. Jeden zwycięzca.';
-  $('#mode-description').textContent = mode === 'solo' ? 'Klikaj liczby od 1 do ostatniej, w rosnącej kolejności. Liczy się szybkość. I precyzja.' : 'Zaproś znajomego kodem pokoju. Ta sama plansza, wspólny start — wygrywa krótszy czas z karami.';
+  $('#mode-description').textContent = mode === 'solo' ? 'Klikaj liczby od 1 do ostatniej, w rosnącej kolejności. Liczy się szybkość. I precyzja.' : 'Zaproś znajomego kodem pokoju. Jeden kod, wiele rund. Ta sama plansza, wspólny start — wygrywa krótszy czas z karami.';
   $('#start-button').innerHTML = `${mode === 'solo' ? 'Rozpocznij trening' : 'Utwórz pokój'} <span>→</span>`;
   $('#join-section').hidden = mode !== 'duel';
   const preview = Array.from({ length: size ** 2 }, (_, i) => i + 1);
@@ -96,7 +99,7 @@ function renderStats() {
   if (!user) ranking.clear();
 }
 function shell(content) {
-  return `<div class="game-body"><div class="game-top"><span class="eyebrow">${game.mode === 'solo' ? 'TRENING SOLO' : `POJEDYNEK / ${escape(game.code)}`} · ${game.size} × ${game.size}</span><button data-action="leave">${game.phase === 'complete' ? 'Wróć do centrum' : 'Opuść'} →</button></div>${content}<div id="leave-confirm" class="confirm-leave" hidden><p>${game.mode === 'duel' ? 'Wyjście po rozpoczęciu odliczania oznacza przegraną walkowerem.' : 'Bieżący trening nie zostanie zapisany.'}</p><div><button class="button small secondary" data-action="confirm-leave">Opuść grę</button><button class="button small primary" data-action="cancel-leave">Zostań</button></div></div></div>`;
+  return `<div class="game-body"><div class="game-top"><span class="eyebrow">${game.mode === 'solo' ? 'TRENING SOLO' : `POJEDYNEK / ${escape(game.code)} · RUNDA ${game.round}`} · ${game.size} × ${game.size}</span><button data-action="leave">${game.phase === 'complete' ? 'Wróć do centrum' : 'Opuść'} →</button></div>${content}<div id="leave-confirm" class="confirm-leave" hidden><p>${game.mode === 'duel' ? 'Wyjście po rozpoczęciu odliczania oznacza przegraną walkowerem.' : 'Bieżący trening nie zostanie zapisany.'}</p><div><button class="button small secondary" data-action="confirm-leave">Opuść grę</button><button class="button small primary" data-action="cancel-leave">Zostań</button></div></div></div>`;
 }
 function renderGame() {
   pwa.setGameActive(game && (game.phase !== 'complete' || game.saved === false));
@@ -104,7 +107,7 @@ function renderGame() {
   $('#setup').hidden = !!game; $('#game').hidden = !game;
   if (!game) { renderKey = ''; $('#game').innerHTML = ''; setup(); return; }
   const me = game.players.find(p => p.me), opponent = game.players.find(p => !p.me);
-  const key = `${game.id}:${game.phase}`;
+  const key = `${game.id}:${game.round}:${game.phase}`;
   if (game.phase === 'waiting') {
     $('#game').innerHTML = shell(`<div class="waiting-room"><span class="eyebrow">GRID IS OPEN</span><h3>Zaproś rywala na start.</h3><p>Przekaż kod drugiej osobie.<br>Oboje kliknijcie „Gotowość”, aby rozpocząć.</p><div class="room-code" id="display-code">${escape(game.code)}</div><button class="auth-switch" data-action="copy-code">Kopiuj kod →</button><div class="players">${[me, opponent].map(p => `<div class="player-slot"><div class="avatar">${p ? escape(p.username[0].toUpperCase()) : '?'}</div><strong>${p ? escape(p.username) : 'Miejsce dla rywala'}</strong><small>${p ? p.ready ? '● Gotowość' : 'Na polach startowych' : 'Czekamy na dołączenie…'}</small></div>`).join('')}</div><button class="button primary" id="ready-button" data-action="ready" ${!opponent || me.ready ? 'disabled' : ''}>${me.ready ? 'Czekamy na gotowość rywala…' : opponent ? 'Gotowość — jedziemy →' : 'Czekamy na drugiego gracza…'}</button></div>`);
   } else if (game.phase === 'countdown') {
@@ -121,7 +124,8 @@ function renderGame() {
   } else if (game.phase === 'complete') {
     const heading = game.mode === 'solo' ? me.score !== null ? 'Dobry przejazd.' : 'Koniec czasu.' : me.outcome === 'win' ? 'Ten pojedynek jest Twój.' : me.outcome === 'draw' ? 'Równo na mecie.' : game.reason === 'forfeit' ? 'Porażka walkowerem.' : 'Rywal był szybszy.';
     const explanation = game.saved === false ? 'Nie udało się zapisać wyniku. Pozostań na tej stronie i ponów zapis, aby zachować go w statystykach.' : game.reason === 'forfeit' ? 'Pojedynek zakończony walkowerem po opuszczeniu gry przez jednego z graczy.' : game.reason === 'timeout' ? 'Upłynął limit 3 minut. Nieukończona plansza nie daje rekordu.' : game.mode === 'solo' ? 'Wynik zapisany. Kolejny przejazd, kolejna szansa na rekord.' : 'Wyniki i bilans pojedynków zostały zapisane.';
-    $('#game').innerHTML = shell(`<div class="result-header"><span class="result-icon">${me.outcome === 'loss' ? '⚑' : '→'}</span><span class="eyebrow">${game.mode === 'solo' ? 'TRENING ZAKOŃCZONY' : 'FLAGA W SZACHOWNICĘ'}</span><h3>${heading}</h3><div class="result-time">${seconds(me.score)} <small>sek.</small></div><p>${explanation}</p></div><table class="result-table"><thead><tr><th>Gracz</th><th>Czas</th><th>Kara</th><th>Wynik</th></tr></thead><tbody>${game.players.map(p => `<tr><td>${escape(p.username)}${p.me ? ' (Ty)' : ''}</td><td>${p.elapsed === null ? '—' : (p.elapsed / 1000).toFixed(2)}</td><td>+${p.errors} s</td><td>${seconds(p.score)} s</td></tr>`).join('')}</tbody></table><div class="result-actions"><button class="button primary" data-action="again">${game.mode === 'solo' ? 'Jeszcze jeden przejazd' : 'Utwórz nowy pokój'} →</button><button class="button secondary" data-action="leave">Wróć</button></div>`);
+    const rematch = game.mode === 'duel' ? `<div class="rematch-info"><p id="rematch-status" role="status">${game.saved === false ? 'Zapisz wynik, aby odblokować kolejną rundę.' : !connected ? 'Połącz ponownie, aby sprawdzić dostępność pokoju.' : !game.canRematch ? 'Rywal opuścił pokój. Możesz utworzyć nowy pokój.' : me.ready ? 'Twoja gotowość potwierdzona. Czekamy na rywala…' : opponent?.ready ? 'Rywal jest gotowy. Potwierdź start kolejnej rundy.' : 'Zostajecie w tym samym pokoju. Oboje potwierdźcie gotowość do kolejnej rundy.'}</p><button class="button primary" data-action="rematch" ${!connected || !game.canRematch || me.ready ? 'disabled' : ''}>${me.ready ? 'Czekamy na rywala…' : 'Gotowość do kolejnej rundy'} →</button></div>` : '';
+    $('#game').innerHTML = shell(`<div class="result-header"><span class="result-icon">${me.outcome === 'loss' ? '⚑' : '→'}</span><span class="eyebrow">${game.mode === 'solo' ? 'TRENING ZAKOŃCZONY' : 'FLAGA W SZACHOWNICĘ'}</span><h3>${heading}</h3><div class="result-time">${seconds(me.score)} <small>sek.</small></div><p>${explanation}</p></div><table class="result-table"><thead><tr><th>Gracz</th><th>Czas</th><th>Kara</th><th>Wynik</th></tr></thead><tbody>${game.players.map(p => `<tr><td>${escape(p.username)}${p.me ? ' (Ty)' : ''}</td><td>${p.elapsed === null ? '—' : (p.elapsed / 1000).toFixed(2)}</td><td>+${p.errors} s</td><td>${seconds(p.score)} s</td></tr>`).join('')}</tbody></table>${rematch}<div class="result-actions"><button class="button ${game.mode === 'solo' ? 'primary' : 'secondary'}" data-action="again">${game.mode === 'solo' ? 'Jeszcze jeden przejazd' : 'Utwórz nowy pokój'} →</button><button class="button secondary" data-action="leave">Wróć</button></div>`);
   }
   if (game.phase === 'complete' && game.saved === false) $('.result-actions').insertAdjacentHTML('beforebegin', '<div class="notice"><button class="button secondary" data-action="retry-save">Ponów zapis wyniku</button></div>');
   renderKey = key;
@@ -158,6 +162,7 @@ document.addEventListener('click', async event => {
       case 'ready': command('ready'); break;
       case 'retry-save': command('retry-save'); break;
       case 'again': command(game.mode === 'solo' ? 'solo' : 'create', { size: game.size }); break;
+      case 'rematch': command('rematch', { matchId: game.matchId }); break;
       case 'home': if (game) toast('Użyj przycisku „Opuść” lub „Wróć do centrum” na planszy.'); else window.scrollTo({ top: 0, behavior: 'smooth' }); break;
       case 'copy-code': try { await navigator.clipboard.writeText(game.code); toast('Kod pokoju skopiowany.'); } catch { toast(`Kod pokoju: ${game.code}`); } break;
       case 'leave': if (game && ['racing', 'countdown'].includes(game.phase)) $('#leave-confirm').hidden = false; else if (game?.phase === 'complete' && !connected) { game = null; renderGame(); } else command('leave'); break;

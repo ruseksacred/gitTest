@@ -45,11 +45,19 @@ try {
     await page.locator('[data-size="4"]').click();
   }
   assert.ok(blockedSockets >= 1 && streams >= 2, 'Both a rejected WS upgrade and a synchronous browser SecurityError must fall back to HTTPS');
-  async function playRound(round) {
-    const code = await a.locator('#display-code').textContent();
-    await b.locator('#room-code').fill(code); await b.locator('#join-form button').click();
-    await a.locator('#ready-button').click(); await b.locator('#ready-button').click();
+  let roomCode;
+  async function playRound(round, rematch = false) {
+    if (rematch) {
+      await a.locator('[data-action="rematch"]').click();
+      await a.waitForFunction(() => document.querySelector('#rematch-status').textContent.includes('Czekamy na rywala'));
+      await b.locator('[data-action="rematch"]').tap();
+    } else {
+      roomCode = await a.locator('#display-code').textContent();
+      await b.locator('#room-code').fill(roomCode); await b.locator('#join-form button').click();
+      await a.locator('#ready-button').click(); await b.locator('#ready-button').click();
+    }
     await Promise.all([a.locator('[data-number="1"]').waitFor(), b.locator('[data-number="1"]').waitFor()]);
+    assert.ok((await a.locator('.game-top').textContent()).includes(roomCode));
     assert.deepEqual(await a.locator('[data-number]').allTextContents(), await b.locator('[data-number]').allTextContents());
     const queriesBefore = authQueries;
     // Burst clicks deliberately: HTTP commands must remain in sequence.
@@ -66,6 +74,7 @@ try {
     assert.equal(history[0].errors, 0, 'Queued HTTPS clicks must arrive in order');
   }
   await a.locator('#start-button').click(); await playRound(1);
+  await playRound(2, true);
   const oldStream = { ...lastCommand };
   await contexts[0].setOffline(true); await a.locator('#connection-banner').waitFor();
   await contexts[0].setOffline(false);
@@ -73,7 +82,7 @@ try {
   const stale = await a.request.post(base + '/api/play', { data: { ...oldStream, action: 'hit', number: 1 } });
   assert.equal(stale.status(), 409, 'Commands from the old connection must never affect the next game');
   await b.locator('.result-actions [data-action="leave"]').click();
-  await playRound(2);
+  await playRound(3);
   const denied = await a.request.post(base + '/api/play', { headers: { Origin: 'https://attacker.example' }, data: { action: 'create', client: 'wrong' } });
   assert.equal(denied.status(), 403);
   const anonymous = await contexts[1].request.post(base + '/api/play', { data: { client: 'not-a-real-stream', action: 'hit', number: 1 } });
@@ -93,9 +102,9 @@ try {
   await a.locator('[data-mode="duel"]').click(); await a.locator('[data-size="4"]').click();
   await a.locator('#start-button').click();
   await b.locator('.result-actions [data-action="leave"]').click();
-  await playRound(3);
+  await playRound(4);
   assert.deepEqual(errors, []);
-  console.log('PASS: rejected WS and synchronous SecurityError recover via HTTPS; two HTTP duels and a mixed WS/HTTP duel, ordered clicks, no per-click DB reads, offline recovery, bounded failures and manual retry.');
+  console.log('PASS: HTTPS fallback, rematch in the same room, four duels including mixed WS/HTTP, ordered clicks, no per-click DB reads, offline recovery, bounded failures and manual retry.');
 } finally {
   await browser.close();
   await new Promise(resolve => proxy.close(resolve));

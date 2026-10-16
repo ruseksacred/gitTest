@@ -16,3 +16,9 @@
 @media (max-width: 600px) {
   .size-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+.rematch-info { margin: 24px 0 0; padding: 18px; background: #c7f36b08; border: 1px solid #414a37; border-radius: 8px; }
+.rematch-info p { color: var(--muted); font-size: 13px; line-height: 1.6; margin: 0 0 14px; }
+.rematch-info .button { width: 100%; font-size: 13px; padding: 16px 10px; }
+.game-top { flex-wrap: wrap; }
+.game-top .eyebrow { flex-wrap: wrap; line-height: 1.7; }

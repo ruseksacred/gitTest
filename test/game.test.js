@@ -143,6 +143,96 @@ test('duel: centisecond tie is recorded as draw for both players', async t => {
   assert.equal((await request('stats', undefined, b.cookie)).body.totals.draws, 1);
 });
 
+test('rematches: three rounds share a room, require both players and save independent ranked results', async t => {
+  const { register, request, app } = await fixture(t, { countdownMs: 1100 });
+  const a = await register('RematchA'), b = await register('RematchB'), outsider = await register('RematchC');
+  let game = await race(a, b);
+  const code = game.code, matchIds = [];
+  for (let round = 1; round <= 3; round++) {
+    assert.equal(game.round, round); assert.equal(game.code, code);
+    assert.ok(game.players.every(p => p.next === 1 && p.errors === 0 && p.score === null && p.elapsed === null));
+    a.send('hit', { number: 2 }); await a.wait(m => m.game?.players.find(p => p.me).errors === 1);
+    await complete(a, 16); await complete(b, 16);
+    const completed = (await a.wait(phase('complete'))).game;
+    await b.wait(phase('complete'));
+    assert.equal(completed.canRematch, true);
+    assert.ok(completed.players.every(p => !p.ready));
+    matchIds.push(completed.matchId);
+    const stats = (await request('stats', undefined, a.cookie)).body;
+    assert.equal(stats.totals.games, round); assert.equal(stats.history.length, round);
+    const ranking = (await request('runs?mode=duel&size=4', undefined, a.cookie)).body;
+    assert.equal(ranking.total, round);
+    if (round > 1) {
+      a.send('rematch', { matchId: matchIds.at(-2) });
+      assert.match((await a.wait(m => m.type === 'error')).message, /runda/);
+    }
+    if (round === 3) break;
+    outsider.messages.length = 0;
+    outsider.send('join', { code });
+    assert.match((await outsider.wait(m => m.type === 'error')).message, /dostępnego/);
+    a.send('rematch', { matchId: completed.matchId });
+    a.send('rematch', { matchId: completed.matchId });
+    const ready = (await b.wait(m => m.game?.phase === 'complete' && m.game.players.find(p => !p.me).ready)).game;
+    assert.equal(ready.players.find(p => p.me).ready, false);
+    assert.deepEqual(ready.players.map(p => p.score), completed.players.map(p => p.score));
+    a.messages.length = b.messages.length = 0;
+    b.send('rematch', { matchId: completed.matchId });
+    const countdown = (await a.wait(phase('countdown'))).game;
+    assert.equal(countdown.round, round + 1); assert.deepEqual(countdown.board, []);
+    assert.equal(countdown.matchId, null);
+    b.messages.length = 0;
+    b.send('rematch', { matchId: completed.matchId });
+    assert.match((await b.wait(m => m.type === 'error')).message, /runda/);
+    game = (await a.wait(phase('racing'))).game;
+    const other = (await b.wait(phase('racing'))).game;
+    assert.deepEqual(game.board, other.board); assert.equal(game.startAt, other.startAt);
+  }
+  assert.equal(new Set(matchIds).size, 3);
+  const rows = await app.db.all('SELECT save_key FROM matches WHERE id IN (?,?,?)', ...matchIds);
+  assert.equal(new Set(rows.map(r => r.save_key)).size, 3);
+});
+
+test('rematches: leaving or changing rooms cancels readiness and preserves the completed result', async t => {
+  const { register, request } = await fixture(t);
+  const a = await register('ExitA'), b = await register('ExitB');
+  await race(a, b); await complete(a, 16); await complete(b, 16);
+  const finished = (await a.wait(phase('complete'))).game;
+  a.send('rematch', { matchId: finished.matchId });
+  await a.wait(m => m.game?.phase === 'complete' && m.game.players.find(p => p.me).ready);
+  b.messages.length = 0;
+  b.send('create', { size: 7 });
+  const nextRoom = (await b.wait(phase('waiting'))).game;
+  assert.notEqual(nextRoom.code, finished.code);
+  const closed = (await a.wait(m => m.game?.phase === 'complete' && !m.game.canRematch)).game;
+  assert.ok(closed.players.every(p => !p.ready));
+  assert.deepEqual(closed.players.map(p => p.score), finished.players.map(p => p.score));
+  a.send('rematch', { matchId: finished.matchId });
+  assert.match((await a.wait(m => m.type === 'error')).message, /opuścił/);
+  assert.equal((await request('stats', undefined, a.cookie)).body.totals.games, 1);
+  a.send('leave'); await a.wait(m => m.type === 'state' && m.game === null);
+  a.messages.length = 0;
+  a.send('join', { code: nextRoom.code });
+  assert.equal((await a.wait(phase('waiting'))).game.size, 7);
+});
+
+test('rematches: same-page transport replacement keeps the completed room and clears readiness', async t => {
+  const { register, connectSocket } = await fixture(t);
+  const clientId = randomUUID();
+  const a = await register('ResumeA', clientId), b = await register('ResumeB');
+  await race(a, b); await complete(a, 16); await complete(b, 16);
+  const finished = (await a.wait(phase('complete'))).game;
+  a.send('rematch', { matchId: finished.matchId });
+  await a.wait(m => m.game?.players.find(p => p.me).ready && m.game.phase === 'complete');
+  const replacement = await connectSocket(a, a.cookie, clientId);
+  const restored = (await replacement.wait(phase('complete'))).game;
+  assert.equal(restored.code, finished.code); assert.equal(restored.matchId, finished.matchId);
+  assert.equal(restored.canRematch, true); assert.ok(restored.players.every(p => !p.ready));
+  b.messages.length = 0; replacement.messages.length = 0;
+  replacement.send('rematch', { matchId: finished.matchId }); b.send('rematch', { matchId: finished.matchId });
+  const next = (await replacement.wait(phase('racing'))).game;
+  assert.equal(next.round, 2); assert.equal(next.code, finished.code);
+});
+
 test('duel: leaving waiting room is free; disconnect after start forfeits and persists', async t => {
   const { request, register } = await fixture(t);
   const a = await register('LeaveA'), b = await register('LeaveB');
@@ -228,6 +318,12 @@ test('database outage: failed match save can be retried without duplicate result
   await complete(a, 16); await complete(b, 16);
   const failed = (await a.wait(m => m.game?.phase === 'complete' && m.game.saved === false)).game;
   assert.equal(failed.saved, false);
+  assert.equal(failed.canRematch, false);
+  a.send('rematch', { matchId: failed.matchId });
+  assert.match((await a.wait(m => m.type === 'error')).message, /zapis/);
+  a.messages.length = 0;
+  a.send('create', { size: 4 });
+  assert.match((await a.wait(m => m.type === 'error')).message, /zapis/);
   assert.equal((await request('stats', undefined, a.cookie)).body.totals.games, 0);
   app.db.transaction = transaction;
   // Simulate a lost acknowledgement after a successful database COMMIT.
