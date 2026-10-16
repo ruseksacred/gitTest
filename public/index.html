@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111512">
+  <meta name="description" content="Race Focus — trenuj koncentrację i rywalizuj w pojedynkach z liczbami.">
+  <title>Race Focus — trening koncentracji</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a href="/" class="brand" aria-label="Race Focus — strona główna"><span class="brand-mark">RF<span></span></span><span>RACE<span class="brand-light">FOCUS</span><small>TRAIN YOUR EDGE</small></span></a>
+    <nav aria-label="Nawigacja"><button class="nav-link active" data-action="home">Centrum treningowe</button><a class="nav-link" href="#statistics">Statystyki</a></nav>
+    <div class="account" id="account"><button class="button small secondary" data-action="auth">Zaloguj się <span>→</span></button></div>
+  </header>
+  <main>
+    <section class="intro"><div><div class="eyebrow"><span class="live-dot"></span> MENTAL PERFORMANCE LAB</div><h1>Przewaga zaczyna się<br>w <em>Twojej głowie.</em></h1><p>Znajdź rytm. Wyostrz koncentrację. Pobij swój czas.</p></div><div class="intro-art" aria-hidden="true"><div class="track track-one"></div><div class="track track-two"></div><span class="track-number">01</span><span class="track-label">FOCUS / REACT / REPEAT</span><span class="track-car"></span></div></section>
+    <div class="workspace">
+      <section class="training-panel" aria-label="Rozgrywka">
+        <div class="panel-heading"><div><span class="section-index">01 /</span><h2>Number sprint</h2></div><span class="pill">KONCENTRACJA + REFLEKS</span></div>
+        <div id="setup">
+          <div class="mode-tabs" role="tablist" aria-label="Tryb gry"><button role="tab" aria-selected="true" class="mode-tab selected" data-mode="solo"><span>◎</span> Trening solo</button><button role="tab" aria-selected="false" class="mode-tab" data-mode="duel"><span>⚑</span> Pojedynek 1 vs 1</button></div>
+          <div class="setup-body"><div class="setup-copy"><span class="eyebrow muted">TWÓJ NASTĘPNY STINT</span><h3 id="mode-title">Ty kontra stoper.</h3><p id="mode-description">Klikaj liczby od 1 do ostatniej, w rosnącej kolejności. Liczy się szybkość. I precyzja.</p></div>
+          <div class="size-label"><span>Rozmiar planszy</span><span id="size-description">16 liczb · standard</span></div><div class="size-options" role="group" aria-label="Rozmiar planszy"><button data-size="3" aria-pressed="false"><span>3 × 3</span><small>ROZGRZEWKA</small></button><button data-size="4" class="selected" aria-pressed="true"><span>4 × 4</span><small>STANDARD</small></button><button data-size="5" aria-pressed="false"><span>5 × 5</span><small>WYZWANIE</small></button></div>
+          <div class="preview-board" id="preview-board" aria-hidden="true"></div>
+          <div class="rules"><span><i>→</i> Kolejność rosnąca</span><span><i>+1s</i> Za każdy błąd</span><span><i>◷</i> Limit 3 minuty</span></div>
+          <button class="button primary start-button" id="start-button" data-action="start">Rozpocznij trening <span>→</span></button>
+          <div id="join-section" hidden><div class="or-divider"><span>lub dołącz do znajomego</span></div><form id="join-form"><label class="sr-only" for="room-code">Kod pokoju</label><input id="room-code" name="code" placeholder="KOD POKOJU" maxlength="6" minlength="6" pattern="[A-Fa-f0-9]{6}" required autocomplete="off"><button class="button secondary" type="submit">Dołącz →</button></form></div>
+          <p class="setup-footnote" id="setup-footnote">Zaloguj się, żeby zapisywać wyniki i śledzić postępy.</p></div>
+        </div>
+        <div id="game" hidden></div>
+      </section>
+      <aside>
+        <section class="stats-panel" id="statistics"><div class="panel-heading"><div><span class="section-index">02 /</span><h2>Twoje tempo</h2></div><span class="small-icon">→</span></div><div class="stats-content"><div class="record-label">REKORD SOLO <span id="record-size">4 × 4</span></div><div class="big-record"><span id="best-time">—</span><small>sek.</small></div><div class="record-meta" id="record-meta">Twój pierwszy rekord czeka na start.</div><div class="duel-totals"><div><strong id="total-wins">0</strong><span>WYGRANE</span></div><div><strong id="total-losses">0</strong><span>PRZEGRANE</span></div><div><strong id="total-draws">0</strong><span>REMISY</span></div></div></div></section>
+        <section class="tip-card"><span class="eyebrow">NOTATKA Z PADOKU</span><h3>Najpierw precyzja.<br>Potem prędkość.</h3><p>Patrz na całą planszę. Szukaj następnej liczby, zanim klikniesz obecną. Złap swój rytm.</p><div class="tip-footer"><span>RACE FOCUS / TRAINING NOTES</span><span>→</span></div></section>
+        <section class="history-panel"><div class="panel-heading"><div><span class="section-index">03 /</span><h2>Ostatnie przejazdy</h2></div></div><div id="history"><div class="empty-history"><span>⚑</span><p>Tu zaczyna się Twoja historia.</p><small>Ukończ trening lub pierwszy pojedynek.</small></div></div></section>
+      </aside>
+    </div>
+    <footer><span class="footer-brand">RACE FOCUS</span><span>Każda setna sekundy ma znaczenie.</span><span>SPRINT 01 <i></i></span></footer>
+  </main>
+  <div id="connection-banner" class="connection-banner" hidden><span id="connection-message">Połączenie przerwane.</span><button class="button small secondary" data-action="reconnect">Połącz ponownie</button></div>
+  <div class="toast" id="toast" role="status" hidden></div>
+  <dialog id="auth-dialog"><button class="dialog-close" data-action="close-auth" aria-label="Zamknij">×</button><span class="eyebrow">DOŁĄCZ DO STAWKI</span><h2 id="auth-title">Witaj na starcie.</h2><p id="auth-description">Zaloguj się i wróć do walki o setne sekundy.</p><form id="auth-form"><label for="username">Login</label><input id="username" name="username" autocomplete="username" minlength="3" maxlength="20" pattern="[a-zA-Z0-9_]{3,20}" required placeholder="Twój pseudonim"><label for="password">Hasło</label><input id="password" name="password" type="password" autocomplete="current-password" minlength="8" maxlength="128" required placeholder="Minimum 8 znaków"><p id="auth-error" class="form-error" role="alert"></p><button type="submit" class="button primary" id="auth-submit">Zaloguj się →</button></form><button class="auth-switch" data-action="switch-auth">Nie masz konta? <strong>Załóż konto</strong></button></dialog>
+</body>
+</html>

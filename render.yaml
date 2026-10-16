@@ -1,0 +1,22 @@
+# Only the free web service is provisioned here. Neon is created separately
+# on its Free plan; there is no Render database or persistent disk resource.
+services:
+  - type: web
+    name: race-focus
+    runtime: node
+    branch: race-focus-free-hosting
+    plan: free
+    region: frankfurt
+    numInstances: 1
+    buildCommand: npm ci --omit=dev --no-audit --no-fund
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: NODE_ENV
+        value: production
+      - key: COOKIE_SECURE
+        value: "1"
+      - key: DATABASE_URL
+        sync: false
