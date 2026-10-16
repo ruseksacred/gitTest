@@ -23,10 +23,12 @@ test('HTTPS reverse-proxy origin supports accounts and websockets with Secure co
   const address = `http://127.0.0.1:${app.server.address().port}`;
   const response = await fetch(address + '/api/register', { method: 'POST', headers: { Origin: publicOrigin, 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'HostedDriver', password: 'Test-password-123' }) });
   assert.equal(response.status, 201);
+  assert.match(response.headers.get('content-security-policy'), /connect-src 'self' wss:\/\/race-focus\.example;/);
+  assert.ok(!response.headers.get('content-security-policy').includes('ws://'));
   assert.match(response.headers.get('set-cookie'), /; Secure/);
   assert.match(response.headers.get('set-cookie'), /; HttpOnly/);
   const cookie = response.headers.get('set-cookie').split(';')[0];
-  const ws = new WebSocket(address.replace('http:', 'ws:') + '/ws', { origin: publicOrigin, headers: { Cookie: cookie } });
+  const ws = new WebSocket(address.replace('http:', 'ws:') + '/ws', { origin: publicOrigin, headers: { Cookie: 'theme=dark;' + cookie } });
   assert.equal((await new Promise((resolve, reject) => { ws.once('message', raw => resolve(JSON.parse(raw))); ws.once('error', reject); })).type, 'connected');
   const closed = new Promise(resolve => ws.once('close', code => resolve(code)));
   const logout = await fetch(address + '/api/logout', { method: 'POST', headers: { Origin: publicOrigin, Cookie: cookie, 'Content-Type': 'application/json' }, body: '{}' });

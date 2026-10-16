@@ -6,6 +6,7 @@ const pwa = initPwa();
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const seconds = score => score == null ? '—' : (score / 100).toFixed(2);
 let user = null, mode = 'solo', size = 4, game = null, stats = null, authMode = 'login', renderKey = '', serverOffset = 0, toastTimer, connected = false;
+let connectionState = 'idle';
 const dialog = $('#auth-dialog');
 function toast(message) { $('#toast').textContent = message; $('#toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { $('#toast').hidden = true; }, 4500); }
 async function api(path, body) {
@@ -52,6 +53,7 @@ const connection = createGameConnection({
     updateAccount();
   },
   onStatus({ state, message }) {
+    connectionState = state;
     connected = state === 'connected';
     if (state === 'expired') { user = null; game = null; stats = null; renderGame(); renderStats(); }
     if (user || state === 'expired') {
@@ -65,7 +67,7 @@ const connection = createGameConnection({
 function connect() { if (user) connection.start().catch(() => {}); }
 function updateAccount() {
   $('#account').innerHTML = user ? `<span class="user-chip">${escape(user.username)}</span><button class="logout" data-action="logout">Wyloguj</button>` : '<button class="button small secondary" data-action="auth">Zaloguj się <span>→</span></button>';
-  $('#setup-footnote').textContent = user ? connected ? 'Twój wynik zapisze się automatycznie. Gotowy na start?' : 'Łączenie z centrum treningowym…' : 'Zaloguj się, żeby zapisywać wyniki i śledzić postępy.';
+  $('#setup-footnote').textContent = user ? connected ? 'Twój wynik zapisze się automatycznie. Gotowy na start?' : connectionState === 'connecting' ? 'Łączenie z centrum treningowym…' : 'Brak połączenia z grą. Wybierz „Połącz ponownie”.' : 'Zaloguj się, żeby zapisywać wyniki i śledzić postępy.';
 }
 function setup() {
   document.querySelectorAll('[data-mode]').forEach(b => { const selected = b.dataset.mode === mode; b.classList.toggle('selected', selected); b.setAttribute('aria-selected', selected); });

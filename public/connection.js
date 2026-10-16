@@ -1,10 +1,13 @@
 // A transport connection is not a game session. Reconnect only the transport;
 // never replay clicks or readiness messages from an interrupted match.
+import { HttpChannel } from './http-channel.js';
+
 export function createGameConnection({ onMessage, onStatus, onDisconnect }) {
   const clientId = crypto.randomUUID();
   let socket = null, ready = false, stopped = true, blocked = null;
   let opening = null, openingReject = null, handshakeTimer = null, retryTimer = null, attempts = 0, pingId = 0;
   const probes = new Map();
+  let transport = 'websocket';
   const connected = () => ready && socket?.readyState === WebSocket.OPEN;
   const status = (state, message) => onStatus({ state, message });
   function rejectProbes() {
@@ -34,14 +37,24 @@ export function createGameConnection({ onMessage, onStatus, onDisconnect }) {
     if (socket) drop();
     clearTimeout(retryTimer); retryTimer = null;
     status('connecting', 'Łączenie z serwerem…');
-    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws?client=${clientId}`);
+    let ws;
+    try {
+      ws = transport === 'http' ? new HttpChannel(clientId) : new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws?client=${clientId}`);
+    } catch {
+      // Safari can throw SecurityError synchronously instead of emitting a
+      // close event. A connecting state must never be left without a timeout.
+      if (transport === 'websocket') { transport = 'http'; return open(); }
+      status('disconnected', 'Nie udało się uruchomić połączenia. Spróbuj ponownie.');
+      retry(); return Promise.reject(Error('Nie udało się uruchomić połączenia.'));
+    }
     socket = ws;
     opening = new Promise((resolve, reject) => {
       openingReject = reject;
       handshakeTimer = setTimeout(() => {
         if (socket !== ws) return;
+        if (transport === 'websocket') transport = 'http';
         drop(); status('disconnected', 'Serwer nie odpowiada. Spróbuj połączyć się ponownie.'); retry();
-      }, 20000);
+      }, transport === 'websocket' ? 5000 : 15000);
       ws.addEventListener('message', event => {
         if (socket !== ws) return;
         let data;
@@ -69,6 +82,7 @@ export function createGameConnection({ onMessage, onStatus, onDisconnect }) {
           blocked = 'Sesja wygasła. Zaloguj się ponownie.';
           status('expired', blocked);
         } else {
+          if (transport === 'websocket') transport = 'http';
           status('disconnected', navigator.onLine ? 'Połączenie przerwane. Próbujemy połączyć ponownie…' : 'Brak internetu. Połączymy się po przywróceniu sieci.');
           retry();
         }

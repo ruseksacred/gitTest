@@ -6,11 +6,12 @@ import { promisify } from 'node:util';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDatabase } from './database.js';
+import { createHttpChannel } from './http-channel.js';
 
 const scrypt = promisify(scryptCallback);
 const root = dirname(fileURLToPath(import.meta.url));
 const hash = value => createHash('sha256').update(value).digest('hex');
-const cookieToken = req => (req.headers.cookie || '').split('; ').find(s => s.startsWith('rf_session='))?.slice(11);
+const cookieToken = req => (req.headers.cookie || '').split(';').map(s => s.trim()).find(s => s.startsWith('rf_session='))?.slice(11);
 
 export async function createApp({ database = process.env.DATABASE_URL || process.env.DB_PATH || resolve(root, 'data/race-focus.sqlite'), databaseSchema, countdownMs = 3000, roundMs = 180000, publicOrigin = process.env.PUBLIC_ORIGIN || process.env.RENDER_EXTERNAL_URL, cookieSecure = process.env.COOKIE_SECURE === '1' || !!process.env.RENDER } = {}) {
   if (process.env.RENDER && !/^postgres(?:ql)?:/.test(database)) throw Error('Render wymaga DATABASE_URL do trwałej bazy PostgreSQL. Lokalny plik nie jest trwały w planie Free.');
@@ -21,16 +22,19 @@ export async function createApp({ database = process.env.DATABASE_URL || process
   const db = await openDatabase(database, { schema: databaseSchema });
   const clients = new Map(), rooms = new Map(), games = new Map();
   const app = express();
+  const expectedOrigin = req => publicOrigin || `${req.socket.encrypted ? 'https' : 'http'}://${req.headers.host}`;
   app.disable('x-powered-by');
   app.use((req, res, next) => {
-    res.set({ 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'same-origin', 'X-Frame-Options': 'DENY', 'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'" });
+    const websocketOrigin = new URL(expectedOrigin(req));
+    websocketOrigin.protocol = websocketOrigin.protocol === 'https:' ? 'wss:' : 'ws:';
+    res.set({ 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'same-origin', 'X-Frame-Options': 'DENY', 'Content-Security-Policy': `default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' ${websocketOrigin.origin}; img-src 'self' data:; frame-ancestors 'none'` });
     if (req.path.startsWith('/api/')) res.set('Cache-Control', 'no-store');
     next();
   });
-  const expectedOrigin = req => publicOrigin || `${req.socket.encrypted ? 'https' : 'http'}://${req.headers.host}`;
   // Render health probes must not keep a free Neon database awake all day.
   // /api/ready is the explicit database readiness check used during deployment.
   app.get('/api/health', (req, res) => res.json({ ok: true }));
+  app.get('/api/version', (req, res) => res.json({ release: 'https-fallback-1', commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'local', transports: ['websocket', 'https'] }));
   app.get('/api/ready', async (req, res) => { await db.get('SELECT 1'); res.json({ ok: true, database: db.dialect }); });
   app.use('/api', (req, res, next) => {
     if (req.method !== 'GET' && (req.headers.origin && req.headers.origin !== expectedOrigin(req))) return res.status(403).json({ error: 'Niedozwolone pochodzenie żądania.' });
@@ -38,12 +42,30 @@ export async function createApp({ database = process.env.DATABASE_URL || process
     next();
   });
   app.use(express.json({ limit: '8kb' }));
+  app.post('/api/play', async (req, res) => {
+    const token = cookieToken(req);
+    if (!token) return res.status(401).json({ error: 'Zaloguj się ponownie.' });
+    // Authenticate against the live, already-authenticated stream; no database
+    // query is made per click. Commands use exactly the same rules as WS.
+    const c = [...clients.values()].find(c => c.clientId === req.body?.client && c.streamId === req.body?.stream && c.tokenHash === hash(token) && c.http);
+    if (!c) return res.status(409).json({ error: 'Połączenie gry wygasło. Połącz się ponownie.' });
+    if (c.revoked || c.user.expires <= Date.now()) return res.status(401).json({ error: 'Zaloguj się ponownie.' });
+    await c.receive(JSON.stringify(req.body));
+    res.sendStatus(204);
+  });
   const userFor = async req => {
     const token = cookieToken(req);
     return token ? db.get('SELECT u.id, u.username, s.expires FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND s.expires>?', hash(token), Date.now()) : undefined;
   };
   app.use('/api', async (req, res, next) => { req.user = await userFor(req); next(); });
   const requireUser = (req, res, next) => req.user ? next() : res.status(401).json({ error: 'Zaloguj się, aby rozpocząć.' });
+  app.get('/api/events', requireUser, (req, res) => {
+    const clientId = req.query.client;
+    if (typeof clientId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(clientId)) return res.status(400).json({ error: 'Nieprawidłowe połączenie.' });
+    if (req.headers.origin && req.headers.origin !== expectedOrigin(req)) return res.status(403).json({ error: 'Niedozwolone pochodzenie żądania.' });
+    const stream = createHttpChannel(req, res);
+    wss.emit('connection', stream, req.user, cookieToken(req), clientId, true);
+  });
   const attempts = new Map();
   const authLimit = (req, res, next) => {
     const key = req.socket.remoteAddress;
@@ -176,6 +198,7 @@ export async function createApp({ database = process.env.DATABASE_URL || process
   async function command(c, data) {
     if (!data || typeof data !== 'object') throw Error('Nieprawidłowe polecenie.');
     if (data.action === 'ping') { if (Number.isSafeInteger(data.id)) send(c, { type: 'pong', id: data.id }); return; }
+    if (data.action === 'transport-pong') { c.alive = true; return; }
     const g = c.game;
     if (['solo', 'create', 'join'].includes(data.action)) {
       if (g && g.phase !== 'complete') throw Error('Najpierw zakończ lub opuść aktualną grę.');
@@ -209,7 +232,7 @@ export async function createApp({ database = process.env.DATABASE_URL || process
       if (g.players.every(p => p.score !== null)) finish(g); else broadcast(g);
     } else throw Error('Nieznane polecenie.');
   }
-  wss.on('connection', (ws, user, token, clientId) => {
+  wss.on('connection', (ws, user, token, clientId, http = false) => {
     const previous = clients.get(user.id);
     let released = Promise.resolve();
     if (previous) {
@@ -219,11 +242,13 @@ export async function createApp({ database = process.env.DATABASE_URL || process
       released = leave(previous);
       previous.ws.terminate();
     }
-    const c = { ws, user, clientId, tokenHash: hash(token), revoked: false, game: null, alive: true, count: 0, window: Date.now() };
-    clients.set(user.id, c); send(c, { type: 'connected' });
+    const c = { ws, user, clientId, http, streamId: http ? randomBytes(16).toString('hex') : null, tokenHash: hash(token), revoked: false, game: null, alive: true, count: 0, window: Date.now() };
+    clients.set(user.id, c);
+    if (http) send(c, { type: 'transport-ready', stream: c.streamId });
+    send(c, { type: 'connected' });
     released.then(() => { if (previous && clients.get(user.id) === c) send(c, { type: 'refresh-stats' }); }).catch(() => console.error('Błąd zamykania poprzedniego połączenia.'));
     ws.on('pong', () => { c.alive = true; });
-    ws.on('message', async raw => {
+    c.receive = async raw => {
       try {
         // Authenticate at upgrade, cache expiration, and invalidate local sockets on logout.
         // No database round trip belongs in a timed click or an idle heartbeat.
@@ -232,7 +257,8 @@ export async function createApp({ database = process.env.DATABASE_URL || process
         if (++c.count > 60) throw Error('Zbyt wiele kliknięć. Zwolnij na moment.');
         await command(c, JSON.parse(raw));
       } catch (error) { send(c, { type: 'error', message: error instanceof SyntaxError ? 'Nieprawidłowe dane.' : error.message }); }
-    });
+    };
+    ws.on('message', c.receive);
     ws.on('close', () => { if (clients.get(user.id) === c) clients.delete(user.id); leave(c).catch(() => console.error('Błąd zamykania rozgrywki.')); });
     ws.on('error', () => ws.terminate());
   });

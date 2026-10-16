@@ -29,6 +29,8 @@ Serwer nasłuchuje na porcie **3000**, na wszystkich interfejsach. `npm run dev`
 
 Po utracie połączenia aplikacja próbuje automatycznie połączyć się ponownie. Sprawdza odpowiedź serwera po powrocie na ekran gry oraz przed rozpoczęciem treningu, utworzeniem pokoju i dołączeniem kodem. Nawet po uśpieniu połączenia przez telefon można rozpocząć kolejny pojedynek bez odświeżania i ponownego logowania. Ukończony, zapisany wynik pozostaje na ekranie; statystyki są ponownie pobierane z serwera.
 
+Jeśli przeglądarka lub sieć blokuje WebSocket, aplikacja automatycznie przechodzi na połączenie przez HTTPS: zdarzenia płyną przez EventSource, a polecenia przez POST. Kolejność kliknięć jest zachowana, a weryfikacja konta nie odpytuje bazy przy każdym kliknięciu. Oba sposoby korzystają z tych samych pokoi, zasad i statystyk. Serwer jawnie dopuszcza własny adres WSS w polityce CSP, także dla Safari. Nieudane próby są ograniczone; błąd przy tworzeniu WebSocket nie pozostawia aplikacji z wiecznym napisem „Łączenie…”.
+
 Przerwanego meczu nie wznawiamy: nadal obowiązuje walkower, a kliknięcia i gotowość nie są wysyłane ponownie. Gdy zawiedzie kilka automatycznych prób, pozostaje przycisk „Połącz ponownie”. Inna karta tego samego konta nadal nie może przejąć gry. W następnej rundzie jedna osoba tworzy **nowy pokój**, a druga dołącza jego nowym kodem.
 
 ## Instalacja na telefonie (PWA)
@@ -54,6 +56,7 @@ npm test
 npm run test:browser
 npm run test:pwa
 npm run test:reconnect
+npm run test:http
 ```
 
 Testy serwera sprawdzają autoryzację, walidację, wszystkie rozmiary plansz, kary, wspólny start, remis, wyniki, walkower, limit czasu, granice pokoi, ponawianie zapisu po awarii bazy, HTTPS za reverse proxy oraz odtworzenie danych po restarcie. Korzystają z oddzielnych baz testowych. Zmienna `TEST_DATABASE_URL` pozwala uruchomić ten sam zestaw oraz test przeglądarkowy na PostgreSQL; instrukcja w [DEPLOY.md](DEPLOY.md).
@@ -63,6 +66,8 @@ Test przeglądarkowy używa Playwright i systemowego Chromium pod `/usr/bin/chro
 `npm run test:pwa` sprawdza manifest i rozmiary ikon, instrukcję iPhone’a, rzeczywisty cykl aktualizacji service workera podczas treningu, nawigację offline oraz brak danych konta w cache. Używa Chromium z emulacją telefonu; wywołanie systemowego okna instalacji jest symulowane. Nie zastępuje sprawdzenia instalacji na fizycznym iPhonie w Safari po wdrożeniu HTTPS.
 
 `npm run test:reconnect` rozgrywa trzy pojedynki z tymi samymi kontami: po pierwszym symuluje utratę internetu, a po drugim połączenie, które pozornie jest otwarte, ale nie odpowiada. Sprawdza kolejną rozgrywkę bez przeładowania strony, brak podwójnych wyników oraz ochronę przed drugą kartą.
+
+`npm run test:http` blokuje WebSocket dla obu graczy: jednemu odrzuca połączenie serwer, drugiemu przeglądarka zgłasza synchroniczny `SecurityError`. Sprawdza automatyczne przejście na HTTPS, dwa pojedynki przez HTTPS oraz pojedynek mieszany WebSocket/HTTPS, kolejność szybkich kliknięć, brak zapytań do bazy przy trafieniach, powrót po utracie internetu i skończoną liczbę nieudanych prób. `TEST_DATABASE_URL` pozwala sprawdzić ten sam scenariusz na PostgreSQL.
 
 ## Dane i konfiguracja
 
@@ -92,6 +97,7 @@ Serwer kontroluje planszę, kolejność, start, kary i wyniki. Pomiar uwzględni
 - `database.js` — SQLite lokalnie, PostgreSQL na hostingu, transakcje i weryfikacja TLS.
 - `public/` — interfejs bez etapu kompilacji i bez zewnętrznych fontów.
 - `public/manifest.webmanifest`, `public/pwa.js`, `public/sw.js`, `public/icons/` — instalacja PWA i publiczny ekran offline.
+- `http-channel.js`, `public/http-channel.js` — zapasowy kanał gry przez HTTPS.
 - `test/game.test.js` — testy integracyjne API i protokołu gry.
 - `test/browser.js` — test dwóch użytkowników w Chromium.
 - `render.yaml`, `DEPLOY.md` — konfiguracja i instrukcja bezpłatnego wdrożenia.

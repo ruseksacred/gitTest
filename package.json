@@ -13,6 +13,7 @@
     "test:browser": "node test/browser.js",
     "test:pwa": "node test/pwa.js",
     "test:reconnect": "node test/reconnect.js",
+    "test:http": "node test/http-transport.js",
     "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
