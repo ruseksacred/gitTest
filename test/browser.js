@@ -32,20 +32,30 @@ try {
   }
   await register(a, 'ApexDriver');
   await register(b, 'TrackPilot');
+  for (const page of [a, b]) {
+    assert.deepEqual(await page.locator('[data-size]').evaluateAll(buttons => buttons.map(b => +b.dataset.size)), [4, 5, 6, 7]);
+    assert.deepEqual(await page.locator('#ranking-size option').evaluateAll(options => options.map(o => +o.value)), [4, 5, 6, 7]);
+    for (const size of [6, 7]) {
+      await page.locator(`[data-size="${size}"]`).click();
+      assert.equal(await page.locator('#preview-board span').count(), size ** 2);
+      assert.equal(await page.locator('#preview-board').evaluate(board => getComputedStyle(board).gridTemplateColumns.split(' ').length), size);
+      assert.match(await page.locator('#size-description').textContent(), new RegExp(`${size ** 2} liczb`));
+    }
+  }
   await b.screenshot({ path: 'test-results/dashboard-mobile.png', fullPage: true });
   assert.ok(await b.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Mobile layout must not overflow horizontally');
-  await a.locator('[data-size="3"]').click();
+  await a.locator('[data-size="6"]').click();
   await a.locator('[data-action="start"]').click();
   await a.locator('[data-number="1"]').waitFor();
   await a.locator('[data-number="2"]').click();
   await a.waitForFunction(() => document.querySelector('#race-errors').textContent === '+1 s');
-  for (let n = 1; n <= 9; n++) { await a.locator(`[data-number="${n}"]`).click(); await a.waitForFunction(n => !document.querySelector('#next-number') || document.querySelector('#next-number').textContent === String(n + 1), n); }
+  for (let n = 1; n <= 36; n++) { await a.locator(`[data-number="${n}"]`).click(); await a.waitForFunction(n => !document.querySelector('#next-number') || document.querySelector('#next-number').textContent === String(n + 1), n); }
   await a.locator('.result-time').waitFor();
   assert.match(await a.locator('.result-header h3').textContent(), /Dobry przejazd/);
   await a.waitForFunction(() => document.querySelector('#best-time').textContent !== '—');
   await a.locator('.result-actions [data-action="leave"]').click();
   await a.locator('[data-mode="duel"]').click();
-  await a.locator('[data-size="4"]').click();
+  await a.locator('[data-size="7"]').click();
   await a.locator('[data-action="start"]').click();
   const code = await a.locator('#display-code').textContent();
   await b.locator('[data-mode="duel"]').click();
@@ -55,12 +65,19 @@ try {
   await b.locator('#ready-button').click();
   await a.locator('[data-number="1"]').waitFor();
   await b.locator('[data-number="1"]').waitFor();
+  assert.equal(await b.locator('[data-number]').count(), 49);
+  assert.equal(await b.locator('#number-board').evaluate(board => getComputedStyle(board).gridTemplateColumns.split(' ').length), 7);
+  await b.setViewportSize({ width: 320, height: 740 });
+  assert.ok(await b.evaluate(() => document.documentElement.scrollWidth <= innerWidth), '7×7 must fit a narrow phone');
+  const smallestCell = await b.locator('[data-number="49"]').boundingBox();
+  assert.ok(smallestCell.width >= 24 && smallestCell.height >= 24, 'All 49 targets remain tappable');
+  await b.setViewportSize({ width: 390, height: 844 });
   assert.deepEqual(await a.locator('[data-number]').allTextContents(), await b.locator('[data-number]').allTextContents());
   await a.screenshot({ path: 'test-results/duel-desktop.png', fullPage: true });
   await b.screenshot({ path: 'test-results/duel-mobile.png', fullPage: true });
-  for (let n = 1; n <= 16; n++) await a.locator(`[data-number="${n}"]`).click();
+  for (let n = 1; n <= 49; n++) await a.locator(`[data-number="${n}"]`).click();
   await a.waitForFunction(() => document.querySelector('#game-hint').textContent.startsWith('Meta!'));
-  for (let n = 1; n <= 16; n++) await b.locator(`[data-number="${n}"]`).tap();
+  for (let n = 1; n <= 49; n++) await b.locator(`[data-number="${n}"]`).tap();
   await a.locator('.result-time').waitFor(); await b.locator('.result-time').waitFor();
   await a.waitForFunction(() => document.querySelector('#total-wins').textContent === '1');
   await b.waitForFunction(() => document.querySelector('#total-losses').textContent === '1');
@@ -73,10 +90,10 @@ try {
   await a.locator('#password').fill('Browser-password-123');
   await a.locator('#auth-submit').click();
   await a.waitForFunction(() => document.querySelector('#total-wins').textContent === '1');
-  await a.locator('[data-size="3"]').click();
+  await a.locator('[data-size="6"]').click();
   assert.notEqual(await a.locator('#best-time').textContent(), '—');
   assert.deepEqual(errors, []);
-  console.log('Browser checks passed: registration, solo with penalty, desktop/mobile duel, same board, stats after login, responsive layout, no JS errors.');
+  console.log('Browser checks passed: only sizes 4–7, 6×6 solo with penalty, 7×7 desktop/mobile duel, same board, stats after login, 320px phone layout, no JS errors.');
 } finally {
   await browser.close(); await app.close(); await target.cleanup(); rmSync(directory, { recursive: true, force: true });
 }

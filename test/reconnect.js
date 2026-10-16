@@ -27,7 +27,7 @@ try {
     await page.locator('#auth-submit').click();
     await page.waitForFunction(() => document.querySelector('#setup-footnote').textContent.includes('Gotowy'));
     await page.locator('[data-mode="duel"]').click();
-    await page.locator('[data-size="3"]').click();
+    await page.locator('[data-size="4"]').click();
   }
   async function play() {
     const code = await a.locator('#display-code').textContent();
@@ -36,8 +36,8 @@ try {
     await a.locator('#ready-button').click(); await b.locator('#ready-button').click();
     await Promise.all([a.locator('[data-number="1"]').waitFor(), b.locator('[data-number="1"]').waitFor()]);
     assert.deepEqual(await a.locator('[data-number]').allTextContents(), await b.locator('[data-number]').allTextContents());
-    for (let n = 1; n <= 9; n++) await a.locator(`[data-number="${n}"]`).click();
-    for (let n = 1; n <= 9; n++) await b.locator(`[data-number="${n}"]`).tap();
+    for (let n = 1; n <= 16; n++) await a.locator(`[data-number="${n}"]`).click();
+    for (let n = 1; n <= 16; n++) await b.locator(`[data-number="${n}"]`).tap();
     await Promise.all([a.locator('.result-time').waitFor(), b.locator('.result-time').waitFor()]);
   }
   await a.locator('#start-button').click();

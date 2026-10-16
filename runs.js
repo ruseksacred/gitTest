@@ -8,12 +8,12 @@ export function parseRunFilters(query) {
   }
   const filters = {
     mode: query.mode ?? 'all',
-    size: integer('size', 4, 5),
+    size: integer('size', 4, 7),
     page: integer('page', 1, 1000000000),
     limit: integer('limit', 20, 50),
     highlight: integer('highlight', null, 2147483647),
   };
-  if (!['all', 'solo', 'duel'].includes(filters.mode) || ![3, 4, 5].includes(filters.size) || !Number.isFinite(filters.page) || !Number.isFinite(filters.limit) || (filters.highlight !== null && !Number.isFinite(filters.highlight))) return null;
+  if (!['all', 'solo', 'duel'].includes(filters.mode) || ![4, 5, 6, 7].includes(filters.size) || !Number.isFinite(filters.page) || !Number.isFinite(filters.limit) || (filters.highlight !== null && !Number.isFinite(filters.highlight))) return null;
   return filters;
 }
 

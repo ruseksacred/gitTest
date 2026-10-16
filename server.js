@@ -35,7 +35,7 @@ export async function createApp({ database = process.env.DATABASE_URL || process
   // Render health probes must not keep a free Neon database awake all day.
   // /api/ready is the explicit database readiness check used during deployment.
   app.get('/api/health', (req, res) => res.json({ ok: true }));
-  app.get('/api/version', (req, res) => res.json({ release: 'ranked-runs-1', commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'local', transports: ['websocket', 'https'] }));
+  app.get('/api/version', (req, res) => res.json({ release: 'boards-4-to-7', commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'local', transports: ['websocket', 'https'] }));
   app.get('/api/ready', async (req, res) => { await db.get('SELECT 1'); res.json({ ok: true, database: db.dialect }); });
   app.use('/api', (req, res, next) => {
     if (req.method !== 'GET' && (req.headers.origin && req.headers.origin !== expectedOrigin(req))) return res.status(403).json({ error: 'Niedozwolone pochodzenie żądania.' });
@@ -122,7 +122,7 @@ export async function createApp({ database = process.env.DATABASE_URL || process
   });
   app.get('/api/runs', requireUser, async (req, res) => {
     const filters = parseRunFilters(req.query);
-    if (!filters) return res.status(400).json({ error: 'Wybierz tryb, planszę 3×3, 4×4 lub 5×5 oraz poprawny numer strony.' });
+    if (!filters) return res.status(400).json({ error: 'Wybierz tryb, planszę 4×4, 5×5, 6×6 lub 7×7 oraz poprawny numer strony.' });
     res.json(await rankedRuns(db, req.user.id, filters));
   });
   app.use(express.static(resolve(root, 'public'), { setHeaders(res, path) {
@@ -215,7 +215,7 @@ export async function createApp({ database = process.env.DATABASE_URL || process
         if (room.players.length >= 2) throw Error('Pokój jest pełny.');
         c.game = room; room.players.push(player(c)); broadcast(room); return;
       }
-      if (![3, 4, 5].includes(data.size)) throw Error('Wybierz rozmiar 3×3, 4×4 lub 5×5.');
+      if (![4, 5, 6, 7].includes(data.size)) throw Error('Wybierz rozmiar 4×4, 5×5, 6×6 lub 7×7.');
       let id; do { id = randomBytes(4).toString('hex').slice(0, 6).toUpperCase(); } while (games.has(id));
       const game = { id, saveKey: randomUUID(), mode: data.action === 'solo' ? 'solo' : 'duel', size: data.size, phase: 'waiting', players: [player(c)], board: [] };
       c.game = game; games.set(id, game);

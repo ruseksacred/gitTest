@@ -71,7 +71,7 @@ try {
   await page.locator('#password').fill('Pwa-test-password-123');
   await page.locator('#auth-submit').click();
   await page.waitForFunction(() => document.querySelector('#setup-footnote').textContent.includes('Gotowy'));
-  await page.locator('[data-size="3"]').click();
+  await page.locator('[data-size="4"]').click();
   await page.locator('#start-button').click();
   await page.locator('[data-number="1"]').waitFor();
   const timeOrigin = await page.evaluate(() => performance.timeOrigin);
@@ -81,7 +81,7 @@ try {
   assert.equal(await page.locator('#update-notice').isVisible(), false, 'No update banner may move the board during a match');
   assert.equal(await page.locator('#update-button').isDisabled(), true);
   assert.equal(await page.evaluate(() => performance.timeOrigin), timeOrigin, 'An available update must not reload a running game');
-  for (let n = 1; n <= 9; n++) await page.locator(`[data-number="${n}"]`).tap();
+  for (let n = 1; n <= 16; n++) await page.locator(`[data-number="${n}"]`).tap();
   await page.locator('.result-time').waitFor();
   await page.locator('#update-notice').waitFor();
   assert.equal(await page.locator('#update-button').isEnabled(), true);
@@ -110,7 +110,7 @@ try {
   await page.locator('.offline-retry').click();
   await page.waitForFunction(() => document.querySelector('#setup-footnote').textContent.includes('Gotowy'));
   assert.equal((await context.cookies()).find(c => c.name === 'rf_session')?.value, cookieBeforeOffline);
-  await page.locator('[data-size="3"]').click();
+  await page.locator('[data-size="4"]').click();
   await page.waitForFunction(() => document.querySelector('#best-time').textContent !== '—');
   assert.deepEqual(errors, []);
   console.log('PASS: offline navigation uses an informative page, never caches account/API data, and reconnect restores saved results.');

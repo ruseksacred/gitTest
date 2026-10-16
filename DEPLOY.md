@@ -79,9 +79,9 @@ Nowe commity na `race-focus-free-hosting` powinny uruchamiać wdrożenie Render,
 
 Przy komunikacie o utracie połączenia aplikacja automatycznie próbuje je odtworzyć. Ukończony mecz nie jest liczony ponownie. Rozpoczęty mecz pozostaje przerwany zgodnie z regułą walkowera. Aby rozegrać kolejną rundę, jedna osoba tworzy nowy pokój i przekazuje **nowy** kod drugiej osobie.
 
-Jeżeli sieć lub przeglądarka nie pozwala otworzyć WebSocket, aplikacja automatycznie używa zwykłego HTTPS. Nie trzeba zmieniać konfiguracji Render ani Neon. Wersję serwera można sprawdzić pod `/api/version`: wersja z rankingiem przejazdów zwraca `release: "ranked-runs-1"`. Pole `commit` pozwala porównać wdrożenie z ostatnim commitem w Render; endpoint nie ujawnia danych kont ani połączenia z bazą.
+Jeżeli sieć lub przeglądarka nie pozwala otworzyć WebSocket, aplikacja automatycznie używa zwykłego HTTPS. Nie trzeba zmieniać konfiguracji Render ani Neon. Wersję serwera można sprawdzić pod `/api/version`: wersja z planszami 4×4–7×7 zwraca `release: "boards-4-to-7"`. Pole `commit` pozwala porównać wdrożenie z ostatnim commitem w Render; endpoint nie ujawnia danych kont ani połączenia z bazą.
 
-Ranking „Twoje przejazdy” korzysta również ze starych zapisanych wyników. Nie wymaga migracji danych ani zmiany ustawień Render czy Neon. Po wdrożeniu wybierz tryb i rozmiar planszy w sekcji statystyk; po nowym ukończonym przejeździe gra pokaże jego miejsce automatycznie.
+Ranking „Twoje przejazdy” korzysta z dotychczasowych wyników dla dostępnych rozmiarów planszy (4×4–7×7). Nie wymaga migracji danych ani zmiany ustawień Render czy Neon. Po wdrożeniu wybierz tryb i rozmiar planszy w sekcji statystyk; po nowym ukończonym przejeździe gra pokaże jego miejsce automatycznie. Wycofanie planszy 3×3 nie usuwa jej wyników z bazy.
 
 ## Ograniczenia darmowej wersji
 

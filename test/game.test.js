@@ -45,7 +45,7 @@ async function fixture(t, options = {}) {
   return { app, url, request, register, connectSocket };
 }
 const phase = name => m => m.game?.phase === name;
-async function race(a, b, size = 3) {
+async function race(a, b, size = 4) {
   a.send('create', { size });
   const waiting = await a.wait(phase('waiting'));
   b.send('join', { code: waiting.game.code.toLowerCase() });
@@ -77,9 +77,11 @@ test('accounts: validation, unique case-insensitive names, login, secure cookie 
 });
 
 test('solo: hidden board before start, all sizes, ordered hits, penalty and persistent stats', async t => {
-  const { request, register } = await fixture(t, { countdownMs: 400 });
+  // Separate the burst-driven test races by a real countdown so clicks from
+  // consecutive 36/49-cell boards stay within the normal per-second limit.
+  const { request, register } = await fixture(t, { countdownMs: 1100 });
   const a = await register('SoloDriver');
-  for (const size of [3, 4, 5]) {
+  for (const size of [4, 5, 6, 7]) {
     a.messages.length = 0;
     a.send('solo', { size });
     const countdown = await a.wait(phase('countdown'));
@@ -101,22 +103,22 @@ test('solo: hidden board before start, all sizes, ordered hits, penalty and pers
     a.send('hit', { number: 1 });
   }
   const stats = (await request('stats', undefined, a.cookie)).body;
-  assert.equal(stats.records.length, 3);
-  assert.equal(stats.history.length, 3);
+  assert.equal(stats.records.length, 4);
+  assert.equal(stats.history.length, 4);
   assert.equal(stats.totals.games, 0);
   const login = await request('login', { username: 'SoloDriver', password: 'Test-password-123' });
   assert.deepEqual((await request('stats', undefined, login.cookie)).body, stats);
 });
 
-test('duel: identical board, errors change winner, no premature result, recorded exactly once', async t => {
+for (const size of [4, 5, 6, 7]) test(`duel ${size}×${size}: identical board, errors change winner, no premature result, recorded exactly once`, async t => {
   const { request, register } = await fixture(t);
   const a = await register('DriverA'), b = await register('DriverB');
-  await race(a, b);
+  await race(a, b, size);
   a.send('hit', { number: 9 });
-  await complete(a, 9);
+  await complete(a, size ** 2);
   await a.wait(m => m.game?.phase === 'racing' && m.game.players.find(p => p.me).score !== null);
   assert.equal((await request('stats', undefined, a.cookie)).body.totals.games, 0);
-  await complete(b, 9);
+  await complete(b, size ** 2);
   const result = (await b.wait(phase('complete'))).game;
   assert.equal(result.players.find(p => p.me).outcome, 'win');
   assert.equal(result.players.find(p => !p.me).outcome, 'loss');
@@ -134,7 +136,7 @@ test('duel: centisecond tie is recorded as draw for both players', async t => {
   const a = await register('EqualA'), b = await register('EqualB');
   const game = await race(a, b);
   t.mock.timers.enable({ apis: ['Date'], now: game.startAt + 1000 });
-  await complete(a, 9); await complete(b, 9);
+  await complete(a, 16); await complete(b, 16);
   const result = (await a.wait(phase('complete'))).game;
   t.mock.timers.reset();
   assert.ok(result.players.every(p => p.outcome === 'draw' && p.score === 100));
@@ -144,7 +146,7 @@ test('duel: centisecond tie is recorded as draw for both players', async t => {
 test('duel: leaving waiting room is free; disconnect after start forfeits and persists', async t => {
   const { request, register } = await fixture(t);
   const a = await register('LeaveA'), b = await register('LeaveB');
-  a.send('create', { size: 3 });
+  a.send('create', { size: 4 });
   const waiting = await a.wait(phase('waiting'));
   b.send('join', { code: waiting.game.code });
   await b.wait(phase('waiting'));
@@ -163,7 +165,10 @@ test('duel: leaving waiting room is free; disconnect after start forfeits and pe
 test('rooms reject third player, invalid size, unknown room and competing games', async t => {
   const { register } = await fixture(t);
   const a = await register('RoomA'), b = await register('RoomB'), c = await register('RoomC');
-  c.send('solo', { size: 100 }); assert.match((await c.wait(m => m.type === 'error')).message, /rozmiar/);
+  for (const action of ['solo', 'create']) for (const size of [3, 8, 100, 6.5, '7']) {
+    c.messages.length = 0;
+    c.send(action, { size }); assert.match((await c.wait(m => m.type === 'error')).message, /rozmiar/);
+  }
   c.messages.length = 0;
   c.send('join', { code: '000000' }); assert.match((await c.wait(m => m.type === 'error')).message, /znaleziono/);
   a.send('create', { size: 4 });
@@ -171,14 +176,14 @@ test('rooms reject third player, invalid size, unknown room and competing games'
   b.send('join', { code: waiting.game.code }); await b.wait(phase('waiting'));
   c.messages.length = 0;
   c.send('join', { code: waiting.game.code }); assert.match((await c.wait(m => m.type === 'error')).message, /pełny/);
-  a.send('solo', { size: 3 }); assert.match((await a.wait(m => m.type === 'error')).message, /aktualną/);
+  a.send('solo', { size: 4 }); assert.match((await a.wait(m => m.type === 'error')).message, /aktualną/);
 });
 
 test('timeout completes a stalled match without inventing a finish time', async t => {
   const { register, request } = await fixture(t, { roundMs: 100 });
   const a = await register('TimeoutA'), b = await register('TimeoutB');
   await race(a, b);
-  await complete(a, 9);
+  await complete(a, 16);
   const result = (await a.wait(phase('complete'))).game;
   assert.equal(result.reason, 'timeout');
   assert.equal(result.players.find(p => !p.me).score, null);
@@ -220,7 +225,7 @@ test('database outage: failed match save can be retried without duplicate result
   await race(a, b);
   const transaction = app.db.transaction;
   app.db.transaction = async () => { throw Error('Simulated unavailable database'); };
-  await complete(a, 9); await complete(b, 9);
+  await complete(a, 16); await complete(b, 16);
   const failed = (await a.wait(m => m.game?.phase === 'complete' && m.game.saved === false)).game;
   assert.equal(failed.saved, false);
   assert.equal((await request('stats', undefined, a.cookie)).body.totals.games, 0);
@@ -251,7 +256,7 @@ test('health probes and timed clicks do not query the database', async t => {
   assert.equal(reads, 0);
   assert.equal((await request('ready')).body.database, app.db.dialect);
   assert.equal(reads, 1);
-  a.send('solo', { size: 3 }); await a.wait(phase('racing'));
+  a.send('solo', { size: 4 }); await a.wait(phase('racing'));
   a.send('hit', { number: 1 });
   await a.wait(m => m.game?.players[0].next === 2);
   assert.equal(reads, 1);
@@ -266,8 +271,8 @@ test('a reconnect from the same page replaces its stale socket and survives the 
   await closed;
   replacement.send('ping', { id: 42 });
   assert.equal((await replacement.wait(m => m.type === 'pong')).id, 42);
-  replacement.send('solo', { size: 3 }); await replacement.wait(phase('racing'));
-  await complete(replacement, 9); await replacement.wait(phase('complete'));
+  replacement.send('solo', { size: 4 }); await replacement.wait(phase('racing'));
+  await complete(replacement, 16); await replacement.wait(phase('complete'));
   assert.equal((await request('stats', undefined, a.cookie)).body.records[0].runs, 1);
 });
 
@@ -278,7 +283,7 @@ test('a different page cannot evict the active connection of the same account', 
   const code = await new Promise(resolve => { duplicate.once('close', resolve); duplicate.once('error', () => {}); });
   assert.equal(code, 4001);
   a.send('ping', { id: 10 }); assert.equal((await a.wait(m => m.type === 'pong')).id, 10);
-  a.send('solo', { size: 3 }); await a.wait(phase('racing'));
+  a.send('solo', { size: 4 }); await a.wait(phase('racing'));
 });
 
 test('reconnecting an interrupted duel records one forfeit and allows the next game', async t => {
@@ -290,7 +295,7 @@ test('reconnecting an interrupted duel records one forfeit and allows the next g
   await b.wait(phase('complete'));
   const stats = (await request('stats', undefined, a.cookie)).body;
   assert.equal(stats.totals.games, 1); assert.equal(stats.totals.losses, 1);
-  replacement.send('create', { size: 3 });
+  replacement.send('create', { size: 4 });
   const room = await replacement.wait(phase('waiting'));
   assert.equal(room.game.players.length, 1);
 });

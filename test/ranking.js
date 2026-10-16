@@ -23,9 +23,9 @@ try {
   const a = await register(desktop, 'RankingPilot'), b = await register(mobile, 'MobilePilot');
   for (let i = 0; i < 22; i++) await seedRun(app.db, a.id, { elapsed: 100, finishedAt: i + 1 });
   await seedRun(app.db, a.id, { mode: 'duel', opponent: b.id, elapsed: 10000, errors: 3 });
-  await seedRun(app.db, a.id, { size: 3, elapsed: 5000 });
-  await seedRun(app.db, b.id, { size: 3, elapsed: 5000, errors: 2 });
-  await seedRun(app.db, b.id, { size: 3, elapsed: 6000 });
+  await seedRun(app.db, a.id, { size: 6, elapsed: 5000 });
+  await seedRun(app.db, b.id, { size: 6, elapsed: 5000, errors: 2 });
+  await seedRun(app.db, b.id, { size: 6, elapsed: 6000 });
   const page = await desktop.newPage(), phone = await mobile.newPage();
   for (const p of [page, phone]) p.on('pageerror', error => errors.push(error.message));
   await Promise.all([page.goto(base), phone.goto(base)]);
@@ -46,16 +46,16 @@ try {
   const intercepted = new Promise(resolve => { started = resolve; });
   const pattern = '**/api/runs?**';
   await page.route(pattern, async route => {
-    if (new URL(route.request().url()).searchParams.get('size') === '3') {
+    if (new URL(route.request().url()).searchParams.get('size') === '6') {
       const response = await route.fetch(); started(); await blocked;
       await route.fulfill({ response });
     } else await route.continue();
   });
-  await page.locator('#ranking-size').selectOption('3');
+  await page.locator('#ranking-size').selectOption('6');
   await intercepted;
   await page.locator('#ranking-size').selectOption('5');
   await page.waitForFunction(() => document.querySelector('#run-ranking').getAttribute('aria-busy') === 'false');
-  const lateResponse = page.waitForResponse(r => r.url().includes('/api/runs?') && new URL(r.url()).searchParams.get('size') === '3');
+  const lateResponse = page.waitForResponse(r => r.url().includes('/api/runs?') && new URL(r.url()).searchParams.get('size') === '6');
   release(); await lateResponse;
   await page.waitForFunction(() => document.querySelector('#ranking-size').value === '5' && document.querySelector('#ranking-status').textContent.startsWith('Brak ukończonych'));
   await page.unroute(pattern);
@@ -79,7 +79,7 @@ try {
   await page.locator('#run-ranking').scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/ranking-desktop.png', fullPage: true });
 
-  await phone.locator('#ranking-size').selectOption('3');
+  await phone.locator('#ranking-size').selectOption('6');
   await phone.waitForFunction(() => document.querySelector('#ranking-status').textContent.startsWith('2 przejazdy'));
   assert.equal(await phone.locator('.ranking-score').first().textContent(), '6.00 s');
   assert.equal(await phone.locator('.ranking-score').last().textContent(), '7.00 s');

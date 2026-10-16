@@ -75,7 +75,7 @@ function updateAccount() {
 function setup() {
   document.querySelectorAll('[data-mode]').forEach(b => { const selected = b.dataset.mode === mode; b.classList.toggle('selected', selected); b.setAttribute('aria-selected', selected); });
   document.querySelectorAll('[data-size]').forEach(b => { const selected = +b.dataset.size === size; b.classList.toggle('selected', selected); b.setAttribute('aria-pressed', selected); });
-  $('#size-description').textContent = `${size ** 2} liczb · ${size === 3 ? 'rozgrzewka' : size === 4 ? 'standard' : 'wyzwanie'}`;
+  $('#size-description').textContent = `${size ** 2} liczb · ${{ 4: 'standard', 5: 'wyzwanie', 6: 'ekspert', 7: 'mistrz' }[size]}`;
   $('#mode-title').textContent = mode === 'solo' ? 'Ty kontra stoper.' : 'Dwa kokpity. Jeden zwycięzca.';
   $('#mode-description').textContent = mode === 'solo' ? 'Klikaj liczby od 1 do ostatniej, w rosnącej kolejności. Liczy się szybkość. I precyzja.' : 'Zaproś znajomego kodem pokoju. Ta sama plansza, wspólny start — wygrywa krótszy czas z karami.';
   $('#start-button').innerHTML = `${mode === 'solo' ? 'Rozpocznij trening' : 'Utwórz pokój'} <span>→</span>`;

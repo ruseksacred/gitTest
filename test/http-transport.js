@@ -42,7 +42,7 @@ try {
     await page.waitForFunction(() => document.querySelector('#setup-footnote').textContent.includes('Gotowy'));
     assert.equal(await page.locator('#connection-banner').isVisible(), false);
     await page.locator('[data-mode="duel"]').click();
-    await page.locator('[data-size="3"]').click();
+    await page.locator('[data-size="4"]').click();
   }
   assert.ok(blockedSockets >= 1 && streams >= 2, 'Both a rejected WS upgrade and a synchronous browser SecurityError must fall back to HTTPS');
   async function playRound(round) {
@@ -53,11 +53,11 @@ try {
     assert.deepEqual(await a.locator('[data-number]').allTextContents(), await b.locator('[data-number]').allTextContents());
     const queriesBefore = authQueries;
     // Burst clicks deliberately: HTTP commands must remain in sequence.
-    await a.evaluate(() => { for (let n = 1; n <= 8; n++) document.querySelector(`[data-number="${n}"]`).click(); });
-    await a.waitForFunction(() => document.querySelector('#next-number').textContent === '9');
+    await a.evaluate(() => { for (let n = 1; n <= 15; n++) document.querySelector(`[data-number="${n}"]`).click(); });
+    await a.waitForFunction(() => document.querySelector('#next-number').textContent === '16');
     assert.equal(authQueries, queriesBefore, 'No database authentication query is allowed per timed HTTPS click');
-    await a.locator('[data-number="9"]').click();
-    for (let n = 1; n <= 9; n++) await b.locator(`[data-number="${n}"]`).tap();
+    await a.locator('[data-number="16"]').click();
+    for (let n = 1; n <= 16; n++) await b.locator(`[data-number="${n}"]`).tap();
     await Promise.all([a.locator('.result-time').waitFor(), b.locator('.result-time').waitFor()]);
     const totals = await a.evaluate(async () => (await (await fetch('/api/stats')).json()).totals);
     assert.equal(totals.games, round);
@@ -90,7 +90,7 @@ try {
   await a.reload();
   await a.waitForFunction(() => document.querySelector('#setup-footnote').textContent.includes('Gotowy'));
   assert.ok(acceptedSockets >= 1);
-  await a.locator('[data-mode="duel"]').click(); await a.locator('[data-size="3"]').click();
+  await a.locator('[data-mode="duel"]').click(); await a.locator('[data-size="4"]').click();
   await a.locator('#start-button').click();
   await b.locator('.result-actions [data-action="leave"]').click();
   await playRound(3);
