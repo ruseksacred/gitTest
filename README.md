@@ -24,7 +24,9 @@ Serwer nasłuchuje na porcie **3000**, na wszystkich interfejsach. `npm run dev`
 - Wynik = czas na serwerze + kary, zaokrąglony do 0,01 sekundy. Równe wyniki oznaczają remis.
 - Wyniki pojedynku pojawiają się po ukończeniu przez obu graczy. Limit rozgrywki: 3 minuty. Ukończona plansza wygrywa z nieukończoną; dwie nieukończone oznaczają remis. Nieukończona plansza nie tworzy rekordu.
 - Wyjście przed odliczaniem jest bez kary. Wyjście, odświeżenie strony, wylogowanie lub utrata połączenia od rozpoczęcia odliczania oznaczają walkower. Zerwane połączenia są wykrywane przez heartbeat w ciągu około 30 sekund. Przerwany trening solo nie jest zapisywany.
-- Osobne rekordy i średnie solo dla każdego rozmiaru; bilans wygranych, przegranych i remisów; ostatnie wyniki z karami. Interfejs pokazuje 6 ostatnich, API zwraca 20.
+- Osobne rekordy i średnie solo dla każdego rozmiaru oraz bilans wygranych, przegranych i remisów.
+- „Twoje przejazdy”: osobisty ranking całej historii ukończonych przejazdów, filtry solo / pojedynki / oba tryby i rozmiar 3×3, 4×4 lub 5×5. Wyniki rosnąco według czasu z karami; remisy dzielą miejsce. Tabela pokazuje rywala, datę, rezultat pojedynku, czas jazdy, liczbę błędów, kary i wynik końcowy. Podsumowanie obejmuje liczbę przejazdów, najlepszy i średni wynik, sumę kar oraz przejazdy bez błędów.
+- Nowy zapisany wynik automatycznie wybiera właściwą kategorię, otwiera stronę ze swoim miejscem i zostaje podświetlony. Historia jest stronicowana po 20 wyników, bez ograniczania do ostatnich przejazdów. Nieukończone plansze nie wchodzą do rankingu; nadal uwzględniane są w bilansie pojedynków. Na telefonie tabelę można przesuwać poziomo.
 - Jedna aktywna karta gry na konto. Druga karta pokazuje komunikat i pozwala ponownie połączyć się po zamknięciu pierwszej.
 
 Po utracie połączenia aplikacja próbuje automatycznie połączyć się ponownie. Sprawdza odpowiedź serwera po powrocie na ekran gry oraz przed rozpoczęciem treningu, utworzeniem pokoju i dołączeniem kodem. Nawet po uśpieniu połączenia przez telefon można rozpocząć kolejny pojedynek bez odświeżania i ponownego logowania. Ukończony, zapisany wynik pozostaje na ekranie; statystyki są ponownie pobierane z serwera.
@@ -57,6 +59,7 @@ npm run test:browser
 npm run test:pwa
 npm run test:reconnect
 npm run test:http
+npm run test:ranking
 ```
 
 Testy serwera sprawdzają autoryzację, walidację, wszystkie rozmiary plansz, kary, wspólny start, remis, wyniki, walkower, limit czasu, granice pokoi, ponawianie zapisu po awarii bazy, HTTPS za reverse proxy oraz odtworzenie danych po restarcie. Korzystają z oddzielnych baz testowych. Zmienna `TEST_DATABASE_URL` pozwala uruchomić ten sam zestaw oraz test przeglądarkowy na PostgreSQL; instrukcja w [DEPLOY.md](DEPLOY.md).
@@ -68,6 +71,10 @@ Test przeglądarkowy używa Playwright i systemowego Chromium pod `/usr/bin/chro
 `npm run test:reconnect` rozgrywa trzy pojedynki z tymi samymi kontami: po pierwszym symuluje utratę internetu, a po drugim połączenie, które pozornie jest otwarte, ale nie odpowiada. Sprawdza kolejną rozgrywkę bez przeładowania strony, brak podwójnych wyników oraz ochronę przed drugą kartą.
 
 `npm run test:http` blokuje WebSocket dla obu graczy: jednemu odrzuca połączenie serwer, drugiemu przeglądarka zgłasza synchroniczny `SecurityError`. Sprawdza automatyczne przejście na HTTPS, dwa pojedynki przez HTTPS oraz pojedynek mieszany WebSocket/HTTPS, kolejność szybkich kliknięć, brak zapytań do bazy przy trafieniach, powrót po utracie internetu i skończoną liczbę nieudanych prób. `TEST_DATABASE_URL` pozwala sprawdzić ten sam scenariusz na PostgreSQL.
+
+`npm run test:ranking` sprawdza filtry, kary, stronicowanie, odporność na spóźnioną odpowiedź dla poprzedniego filtra, automatyczne umieszczenie rzeczywiście rozegranego treningu na drugiej stronie rankingu, widok telefonu oraz usunięcie historii z widoku po wylogowaniu. Testy API w `npm test` dodatkowo sprawdzają remisy, całą historię, prywatność wyników i walidację filtrów. Oba zestawy obsługują `TEST_DATABASE_URL`.
+
+`GET /api/runs` wymaga zalogowania. Parametry: `mode=all|solo|duel` (domyślnie `all`), `size=3|4|5` (domyślnie `4`), `page` (od 1), `limit` (1–50, domyślnie 20), opcjonalnie `highlight` (identyfikator meczu). Odpowiedź zawiera podsumowanie całej wybranej kategorii i jedną stronę wyników. `highlight` otwiera stronę z danym przejazdem, jeżeli należy do użytkownika i pasuje do filtrów. Starszy `/api/stats` zachowuje dotychczasowy format.
 
 ## Dane i konfiguracja
 
@@ -95,6 +102,7 @@ Serwer kontroluje planszę, kolejność, start, kary i wyniki. Pomiar uwzględni
 
 - `server.js` — HTTP, konta, WebSocket i reguły rozgrywki.
 - `database.js` — SQLite lokalnie, PostgreSQL na hostingu, transakcje i weryfikacja TLS.
+- `runs.js`, `public/ranking.js`, `public/ranking.css` — osobisty ranking przejazdów, filtry i tabela statystyk.
 - `public/` — interfejs bez etapu kompilacji i bez zewnętrznych fontów.
 - `public/manifest.webmanifest`, `public/pwa.js`, `public/sw.js`, `public/icons/` — instalacja PWA i publiczny ekran offline.
 - `http-channel.js`, `public/http-channel.js` — zapasowy kanał gry przez HTTPS.

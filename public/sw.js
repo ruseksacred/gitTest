@@ -1,5 +1,5 @@
 // Bump on each app release so installed clients also see the update prompt.
-const CACHE = 'race-focus-offline-v3';
+const CACHE = 'race-focus-offline-v4';
 const OFFLINE_ASSETS = ['/offline.html', '/pwa.css', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/apple-touch-icon.png'];
 
 self.addEventListener('install', event => {

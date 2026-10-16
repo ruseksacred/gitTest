@@ -90,10 +90,14 @@ test('solo: hidden board before start, all sizes, ordered hits, penalty and pers
     a.send('hit', { number: 2 });
     await a.wait(m => m.game?.players[0].errors === 1);
     await complete(a, size ** 2);
-    const done = (await a.wait(phase('complete'))).game.players[0];
+    const completed = (await a.wait(phase('complete'))).game;
+    const done = completed.players[0];
     assert.equal(done.next, size ** 2 + 1);
     assert.equal(done.errors, 1);
     assert.equal(done.score, Math.round((done.elapsed + 1000) / 10));
+    const ranked = (await request(`runs?mode=solo&size=${size}&highlight=${completed.matchId}`, undefined, a.cookie)).body;
+    assert.equal(ranked.highlight.id, completed.matchId);
+    assert.equal(ranked.rows[0].score, done.score);
     a.send('hit', { number: 1 });
   }
   const stats = (await request('stats', undefined, a.cookie)).body;

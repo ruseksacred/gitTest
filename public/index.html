@@ -15,12 +15,13 @@
   <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png">
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/pwa.css">
+  <link rel="stylesheet" href="/ranking.css">
   <script type="module" src="/app.js"></script>
 </head>
 <body>
   <header class="topbar">
     <a href="/" class="brand" aria-label="Race Focus — strona główna"><span class="brand-mark">RF<span></span></span><span>RACE<span class="brand-light">FOCUS</span><small>TRAIN YOUR EDGE</small></span></a>
-    <nav aria-label="Nawigacja"><button class="nav-link active" data-action="home">Centrum treningowe</button><a class="nav-link" href="#statistics">Statystyki</a></nav>
+    <nav aria-label="Nawigacja"><button class="nav-link active" data-action="home">Centrum treningowe</button><a class="nav-link" href="#run-ranking">Statystyki</a></nav>
     <div class="account" id="account"><button class="button small secondary" data-action="auth">Zaloguj się <span>→</span></button></div>
   </header>
   <main>
@@ -46,9 +47,19 @@
       <aside>
         <section class="stats-panel" id="statistics"><div class="panel-heading"><div><span class="section-index">02 /</span><h2>Twoje tempo</h2></div><span class="small-icon">→</span></div><div class="stats-content"><div class="record-label">REKORD SOLO <span id="record-size">4 × 4</span></div><div class="big-record"><span id="best-time">—</span><small>sek.</small></div><div class="record-meta" id="record-meta">Twój pierwszy rekord czeka na start.</div><div class="duel-totals"><div><strong id="total-wins">0</strong><span>WYGRANE</span></div><div><strong id="total-losses">0</strong><span>PRZEGRANE</span></div><div><strong id="total-draws">0</strong><span>REMISY</span></div></div></div></section>
         <section class="tip-card"><span class="eyebrow">NOTATKA Z PADOKU</span><h3>Najpierw precyzja.<br>Potem prędkość.</h3><p>Patrz na całą planszę. Szukaj następnej liczby, zanim klikniesz obecną. Złap swój rytm.</p><div class="tip-footer"><span>RACE FOCUS / TRAINING NOTES</span><span>→</span></div></section>
-        <section class="history-panel"><div class="panel-heading"><div><span class="section-index">03 /</span><h2>Ostatnie przejazdy</h2></div></div><div id="history"><div class="empty-history"><span>⚑</span><p>Tu zaczyna się Twoja historia.</p><small>Ukończ trening lub pierwszy pojedynek.</small></div></div></section>
       </aside>
     </div>
+    <section class="history-panel run-ranking" id="run-ranking" aria-labelledby="ranking-title">
+      <div class="panel-heading"><div><span class="section-index">03 /</span><h2 id="ranking-title">Twoje przejazdy</h2></div><span class="pill">RANKING CZASÓW</span></div>
+      <div class="ranking-body">
+        <p class="ranking-intro">Wszystkie Twoje ukończone przejazdy, od najlepszego wyniku. Czas końcowy uwzględnia kary: +1 s za błąd. Identyczne wyniki dzielą miejsce.</p>
+        <div class="ranking-filters"><label for="ranking-mode">Tryb gry<select id="ranking-mode"><option value="all">Solo i pojedynki</option><option value="solo">Trening solo</option><option value="duel">Pojedynki 1 vs 1</option></select></label><label for="ranking-size">Rozmiar planszy / toru<select id="ranking-size"><option value="3">3 × 3 · 9 liczb</option><option value="4" selected>4 × 4 · 16 liczb</option><option value="5">5 × 5 · 25 liczb</option></select></label></div>
+        <div id="ranking-summary" class="ranking-summary" hidden></div>
+        <p id="ranking-status" class="ranking-status" role="status">Zaloguj się, aby zobaczyć swój ranking przejazdów.</p>
+        <div id="ranking-results" hidden><p class="ranking-scroll-hint">Przesuń tabelę, aby zobaczyć wszystkie czasy →</p><div class="ranking-scroll" role="region" aria-label="Ranking przejazdów" tabindex="0"><table class="ranking-table"><caption class="sr-only">Twoje przejazdy posortowane według czasu końcowego z karami</caption><thead><tr><th scope="col">Miejsce</th><th scope="col">Przejazd</th><th scope="col">Plansza</th><th scope="col">Czas jazdy</th><th scope="col">Kary</th><th scope="col">Wynik końcowy ↑</th></tr></thead><tbody id="ranking-rows"></tbody></table></div><div class="ranking-pagination"><button class="button small secondary" id="ranking-prev">← Poprzednie</button><span id="ranking-page"></span><button class="button small secondary" id="ranking-next">Następne →</button></div></div>
+        <button class="button small secondary" id="ranking-retry" hidden>Spróbuj ponownie</button>
+      </div>
+    </section>
     <footer><span class="footer-brand">RACE FOCUS</span><span>Każda setna sekundy ma znaczenie.</span><span>SPRINT 01 <i></i></span></footer>
   </main>
   <div id="connection-banner" class="connection-banner" hidden><span id="connection-message">Połączenie przerwane.</span><button class="button small secondary" data-action="reconnect">Połącz ponownie</button></div>

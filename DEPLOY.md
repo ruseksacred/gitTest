@@ -73,13 +73,15 @@ Przed pierwszą wspólną grą sprawdźcie na obu telefonach: uruchomienie z iko
 
 Bez internetu dostępny jest wyłącznie ekran informacyjny, nie trening ani pojedynki. Automatyczne testy obejmują Chromium z emulacją telefonu; instalację w systemowym Safari trzeba jeszcze potwierdzić na fizycznym iPhonie pod opublikowanym adresem.
 
-### Aktualizacja po poprawce połączenia
+### Aktualizacja aplikacji
 
 Nowe commity na `race-focus-free-hosting` powinny uruchamiać wdrożenie Render, jeśli włączono Auto-Deploy. Sprawdź status **Live** dla najnowszego commita. Jeśli automatyczne wdrożenie jest wyłączone, wybierz **Manual Deploy → Deploy latest commit**. Następnie odśwież stronę na obu telefonach albo wybierz **Zaktualizuj**, jeżeli aplikacja pokazuje komunikat o nowej wersji.
 
 Przy komunikacie o utracie połączenia aplikacja automatycznie próbuje je odtworzyć. Ukończony mecz nie jest liczony ponownie. Rozpoczęty mecz pozostaje przerwany zgodnie z regułą walkowera. Aby rozegrać kolejną rundę, jedna osoba tworzy nowy pokój i przekazuje **nowy** kod drugiej osobie.
 
-Jeżeli sieć lub przeglądarka nie pozwala otworzyć WebSocket, aplikacja automatycznie używa zwykłego HTTPS. Nie trzeba zmieniać konfiguracji Render ani Neon. Wersję serwera można sprawdzić pod `/api/version`: poprawka zapasowego połączenia zwraca `release: "https-fallback-1"`. Pole `commit` pozwala porównać wdrożenie z ostatnim commitem w Render; endpoint nie ujawnia danych kont ani połączenia z bazą.
+Jeżeli sieć lub przeglądarka nie pozwala otworzyć WebSocket, aplikacja automatycznie używa zwykłego HTTPS. Nie trzeba zmieniać konfiguracji Render ani Neon. Wersję serwera można sprawdzić pod `/api/version`: wersja z rankingiem przejazdów zwraca `release: "ranked-runs-1"`. Pole `commit` pozwala porównać wdrożenie z ostatnim commitem w Render; endpoint nie ujawnia danych kont ani połączenia z bazą.
+
+Ranking „Twoje przejazdy” korzysta również ze starych zapisanych wyników. Nie wymaga migracji danych ani zmiany ustawień Render czy Neon. Po wdrożeniu wybierz tryb i rozmiar planszy w sekcji statystyk; po nowym ukończonym przejeździe gra pokaże jego miejsce automatycznie.
 
 ## Ograniczenia darmowej wersji
 

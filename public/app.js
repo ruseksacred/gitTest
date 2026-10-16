@@ -1,5 +1,6 @@
 import { initPwa } from './pwa.js';
 import { createGameConnection } from './connection.js';
+import { createRanking } from './ranking.js';
 
 const $ = selector => document.querySelector(selector);
 const pwa = initPwa();
@@ -8,6 +9,7 @@ const seconds = score => score == null ? '—' : (score / 100).toFixed(2);
 let user = null, mode = 'solo', size = 4, game = null, stats = null, authMode = 'login', renderKey = '', serverOffset = 0, toastTimer, connected = false;
 let connectionState = 'idle';
 const dialog = $('#auth-dialog');
+const ranking = createRanking({ api, getUser: () => user });
 function toast(message) { $('#toast').textContent = message; $('#toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { $('#toast').hidden = true; }, 4500); }
 async function api(path, body) {
   if (!navigator.onLine) throw Error('Brak internetu. Połącz się z siecią i spróbuj ponownie.');
@@ -38,6 +40,7 @@ const connection = createGameConnection({
         if (oldMe && currentMe?.errors > oldMe.errors) { $('#game').classList.remove('flash-error'); void $('#game').offsetWidth; $('#game').classList.add('flash-error'); }
       }
       renderGame();
+      if (game?.phase === 'complete') ranking.finished(game);
       if (game?.phase === 'complete' || !game) refreshStats();
     }
   },
@@ -83,15 +86,14 @@ function setup() {
   $('#preview-board').innerHTML = preview.map(n => `<span${n === 1 ? ' class="preview-active"' : ''}>${n}</span>`).join('');
   renderStats();
 }
-async function refreshStats() { if (!user) return; const id = user.id; try { const data = await api('stats'); if (user?.id === id) { stats = data; renderStats(); } } catch (error) { if (user?.id === id) toast(error.message); } }
+async function refreshStats() { if (!user) return; ranking.refresh(); const id = user.id; try { const data = await api('stats'); if (user?.id === id) { stats = data; renderStats(); } } catch (error) { if (user?.id === id) toast(error.message); } }
 function renderStats() {
   const record = stats?.records.find(r => r.size === size);
   $('#record-size').textContent = `${size} × ${size}`;
   $('#best-time').textContent = seconds(record?.best);
   $('#record-meta').textContent = record ? `${record.runs} ukończonych treningów · średnio ${seconds(record.average)} s` : 'Twój pierwszy rekord czeka na start.';
   for (const key of ['wins', 'losses', 'draws']) $(`#total-${key}`).textContent = stats?.totals[key] || 0;
-  const outcomes = { win: 'WYGRANA', loss: 'PRZEGRANA', draw: 'REMIS', solo: 'TRENING' };
-  $('#history').innerHTML = stats?.history.length ? stats.history.slice(0, 6).map(h => `<div class="history-row"><div><strong>${h.mode === 'solo' ? 'Trening solo' : `vs ${escape(h.opponent)}`} <span class="muted">${h.size} × ${h.size}</span></strong><small>${new Date(h.finished_at).toLocaleDateString('pl-PL', { day: 'numeric', month: 'short' })} · ${outcomes[h.outcome]}${h.reason === 'forfeit' ? ' · WALKOWER' : h.reason === 'timeout' ? ' · LIMIT CZASU' : ''}</small></div><div class="history-score">${seconds(h.score)}${h.score == null ? '' : ' s'}<small>${h.errors} bł. / +${h.errors} s</small></div></div>`).join('') : '<div class="empty-history"><span>⚑</span><p>Tu zaczyna się Twoja historia.</p><small>Ukończ trening lub pierwszy pojedynek.</small></div>';
+  if (!user) ranking.clear();
 }
 function shell(content) {
   return `<div class="game-body"><div class="game-top"><span class="eyebrow">${game.mode === 'solo' ? 'TRENING SOLO' : `POJEDYNEK / ${escape(game.code)}`} · ${game.size} × ${game.size}</span><button data-action="leave">${game.phase === 'complete' ? 'Wróć do centrum' : 'Opuść'} →</button></div>${content}<div id="leave-confirm" class="confirm-leave" hidden><p>${game.mode === 'duel' ? 'Wyjście po rozpoczęciu odliczania oznacza przegraną walkowerem.' : 'Bieżący trening nie zostanie zapisany.'}</p><div><button class="button small secondary" data-action="confirm-leave">Opuść grę</button><button class="button small primary" data-action="cancel-leave">Zostań</button></div></div></div>`;

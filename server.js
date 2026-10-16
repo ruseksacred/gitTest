@@ -7,6 +7,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDatabase } from './database.js';
 import { createHttpChannel } from './http-channel.js';
+import { parseRunFilters, rankedRuns } from './runs.js';
 
 const scrypt = promisify(scryptCallback);
 const root = dirname(fileURLToPath(import.meta.url));
@@ -34,7 +35,7 @@ export async function createApp({ database = process.env.DATABASE_URL || process
   // Render health probes must not keep a free Neon database awake all day.
   // /api/ready is the explicit database readiness check used during deployment.
   app.get('/api/health', (req, res) => res.json({ ok: true }));
-  app.get('/api/version', (req, res) => res.json({ release: 'https-fallback-1', commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'local', transports: ['websocket', 'https'] }));
+  app.get('/api/version', (req, res) => res.json({ release: 'ranked-runs-1', commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'local', transports: ['websocket', 'https'] }));
   app.get('/api/ready', async (req, res) => { await db.get('SELECT 1'); res.json({ ok: true, database: db.dialect }); });
   app.use('/api', (req, res, next) => {
     if (req.method !== 'GET' && (req.headers.origin && req.headers.origin !== expectedOrigin(req))) return res.status(403).json({ error: 'Niedozwolone pochodzenie żądania.' });
@@ -119,6 +120,11 @@ export async function createApp({ database = process.env.DATABASE_URL || process
     const history = await db.all(`SELECT m.id, m.mode, m.size, m.finished_at, m.reason, r.elapsed, r.errors, r.score, r.outcome, (SELECT u.username FROM results rr JOIN users u ON u.id=rr.user_id WHERE rr.match_id=m.id AND rr.user_id<>?) opponent FROM results r JOIN matches m ON m.id=r.match_id WHERE r.user_id=? ORDER BY m.id DESC LIMIT 20`, req.user.id, req.user.id);
     res.json({ totals, records, history });
   });
+  app.get('/api/runs', requireUser, async (req, res) => {
+    const filters = parseRunFilters(req.query);
+    if (!filters) return res.status(400).json({ error: 'Wybierz tryb, planszę 3×3, 4×4 lub 5×5 oraz poprawny numer strony.' });
+    res.json(await rankedRuns(db, req.user.id, filters));
+  });
   app.use(express.static(resolve(root, 'public'), { setHeaders(res, path) {
     if (path.endsWith('/sw.js')) { res.setHeader('Cache-Control', 'no-cache'); res.setHeader('Service-Worker-Allowed', '/'); }
     if (path.endsWith('/manifest.webmanifest')) res.setHeader('Content-Type', 'application/manifest+json');
@@ -139,7 +145,7 @@ export async function createApp({ database = process.env.DATABASE_URL || process
   });
   const send = (client, data) => { if (client.ws.readyState === WebSocket.OPEN) client.ws.send(JSON.stringify(data)); };
   function state(game, id) {
-    return { type: 'state', game: { id: game.id, mode: game.mode, code: game.mode === 'duel' ? game.id : null, size: game.size, phase: game.phase, startAt: game.startAt, deadline: game.startAt ? game.startAt + roundMs : null, serverNow: Date.now(), board: ['racing', 'saving', 'complete'].includes(game.phase) ? game.board : [], reason: game.reason, saved: game.saved ?? null,
+    return { type: 'state', game: { id: game.id, matchId: game.matchId ?? null, mode: game.mode, code: game.mode === 'duel' ? game.id : null, size: game.size, phase: game.phase, startAt: game.startAt, deadline: game.startAt ? game.startAt + roundMs : null, serverNow: Date.now(), board: ['racing', 'saving', 'complete'].includes(game.phase) ? game.board : [], reason: game.reason, saved: game.saved ?? null,
       players: game.players.map(p => ({ id: p.id, username: p.username, ready: p.ready, next: p.next, errors: p.errors, elapsed: p.elapsed, score: p.score, outcome: p.outcome, me: p.id === id })) } };
   }
   function broadcast(game) { for (const p of game.players) { const c = clients.get(p.id); if (c?.game === game) send(c, state(game, p.id)); } }
@@ -163,9 +169,10 @@ export async function createApp({ database = process.env.DATABASE_URL || process
     game.phase = 'saving'; broadcast(game);
     game.finishPromise = (async () => {
       try {
-        await db.transaction(async tx => {
+        game.matchId = await db.transaction(async tx => {
           const { id } = await tx.get('INSERT INTO matches(mode,size,finished_at,reason,save_key) VALUES (?,?,?,?,?) ON CONFLICT(save_key) DO UPDATE SET save_key=excluded.save_key RETURNING id', game.mode, game.size, game.finishedAt, game.reason, game.saveKey);
           for (const p of game.players) await tx.run('INSERT INTO results VALUES (?,?,?,?,?,?) ON CONFLICT(match_id,user_id) DO NOTHING', id, p.id, p.elapsed, p.errors, p.score, p.outcome);
+          return id;
         });
         game.saved = true;
       } catch { game.saved = false; console.error('Nie udało się zapisać wyniku meczu. Można ponowić zapis.'); }
