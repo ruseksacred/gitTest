@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { WebSocket } from 'ws';
 import { createApp } from '../server.js';
 import { databaseFixture } from './database-fixture.js';
@@ -17,10 +18,13 @@ async function fixture(t, options = {}) {
     const response = await fetch(`${url}/api/${path}`, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', Origin: url, ...(cookie ? { Cookie: cookie } : {}) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     return { status: response.status, body: await response.json(), cookie: response.headers.get('set-cookie')?.split(';')[0] };
   }
-  async function register(username) {
+  async function register(username, clientId) {
     const r = await request('register', { username, password: 'Test-password-123' });
     assert.equal(r.status, 201);
-    const ws = new WebSocket(url.replace('http:', 'ws:') + '/ws', { origin: url, headers: { Cookie: r.cookie } });
+    return connectSocket(r.body.user, r.cookie, clientId);
+  }
+  async function connectSocket(user, cookie, clientId) {
+    const ws = new WebSocket(url.replace('http:', 'ws:') + '/ws' + (clientId ? `?client=${clientId}` : ''), { origin: url, headers: { Cookie: cookie } });
     const messages = [], waiters = [];
     ws.on('message', raw => {
       const message = JSON.parse(raw);
@@ -36,9 +40,9 @@ async function fixture(t, options = {}) {
       });
     };
     await wait(m => m.type === 'connected');
-    return { ...r.body.user, cookie: r.cookie, ws, wait, messages, send(action, payload = {}) { ws.send(JSON.stringify({ action, ...payload })); } };
+    return { ...user, cookie, ws, wait, messages, send(action, payload = {}) { ws.send(JSON.stringify({ action, ...payload })); } };
   }
-  return { app, url, request, register };
+  return { app, url, request, register, connectSocket };
 }
 const phase = name => m => m.game?.phase === name;
 async function race(a, b, size = 3) {
@@ -247,4 +251,42 @@ test('health probes and timed clicks do not query the database', async t => {
   a.send('hit', { number: 1 });
   await a.wait(m => m.game?.players[0].next === 2);
   assert.equal(reads, 1);
+});
+
+test('a reconnect from the same page replaces its stale socket and survives the old close event', async t => {
+  const { register, request, connectSocket } = await fixture(t);
+  const clientId = randomUUID();
+  const a = await register('SamePage', clientId);
+  const closed = new Promise(resolve => a.ws.once('close', resolve));
+  const replacement = await connectSocket(a, a.cookie, clientId);
+  await closed;
+  replacement.send('ping', { id: 42 });
+  assert.equal((await replacement.wait(m => m.type === 'pong')).id, 42);
+  replacement.send('solo', { size: 3 }); await replacement.wait(phase('racing'));
+  await complete(replacement, 9); await replacement.wait(phase('complete'));
+  assert.equal((await request('stats', undefined, a.cookie)).body.records[0].runs, 1);
+});
+
+test('a different page cannot evict the active connection of the same account', async t => {
+  const { url, register } = await fixture(t);
+  const a = await register('DifferentPage', randomUUID());
+  const duplicate = new WebSocket(url.replace('http:', 'ws:') + '/ws?client=' + randomUUID(), { origin: url, headers: { Cookie: a.cookie } });
+  const code = await new Promise(resolve => { duplicate.once('close', resolve); duplicate.once('error', () => {}); });
+  assert.equal(code, 4001);
+  a.send('ping', { id: 10 }); assert.equal((await a.wait(m => m.type === 'pong')).id, 10);
+  a.send('solo', { size: 3 }); await a.wait(phase('racing'));
+});
+
+test('reconnecting an interrupted duel records one forfeit and allows the next game', async t => {
+  const { register, connectSocket, request } = await fixture(t);
+  const clientId = randomUUID();
+  const a = await register('InterruptedA', clientId), b = await register('InterruptedB');
+  await race(a, b);
+  const replacement = await connectSocket(a, a.cookie, clientId);
+  await b.wait(phase('complete'));
+  const stats = (await request('stats', undefined, a.cookie)).body;
+  assert.equal(stats.totals.games, 1); assert.equal(stats.totals.losses, 1);
+  replacement.send('create', { size: 3 });
+  const room = await replacement.wait(phase('waiting'));
+  assert.equal(room.game.players.length, 1);
 });

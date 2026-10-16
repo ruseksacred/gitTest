@@ -10,12 +10,12 @@ const directory = await mkdtemp(join(tmpdir(), 'rf-pwa-'));
 const app = await createApp({ database: join(directory, 'test.sqlite'), countdownMs: 50 });
 await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve));
 // Serve a newer worker at the same URL without editing the application's files.
-let workerRevision = 1;
 const worker = await readFile(new URL('../public/sw.js', import.meta.url), 'utf8');
+let workerRevision = Number(worker.match(/race-focus-offline-v(\d+)/)[1]);
 const proxy = createServer((req, res) => {
   if (new URL(req.url, 'http://local.test').pathname === '/sw.js') {
     res.writeHead(200, { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache', 'Service-Worker-Allowed': '/' });
-    res.end(worker.replace('race-focus-offline-v1', `race-focus-offline-v${workerRevision}`));
+    res.end(worker.replace(/race-focus-offline-v\d+/, `race-focus-offline-v${workerRevision}`));
   } else app.server.emit('request', req, res);
 });
 proxy.on('upgrade', (req, socket, head) => app.server.emit('upgrade', req, socket, head));
@@ -75,7 +75,7 @@ try {
   await page.locator('#start-button').click();
   await page.locator('[data-number="1"]').waitFor();
   const timeOrigin = await page.evaluate(() => performance.timeOrigin);
-  workerRevision = 2;
+  workerRevision++;
   await page.evaluate(async () => { await (await navigator.serviceWorker.getRegistration()).update(); });
   await page.waitForFunction(async () => Boolean((await navigator.serviceWorker.getRegistration())?.waiting));
   assert.equal(await page.locator('#update-notice').isVisible(), false, 'No update banner may move the board during a match');
@@ -89,7 +89,7 @@ try {
   await page.waitForFunction(origin => performance.timeOrigin !== origin, timeOrigin);
   await page.waitForFunction(() => document.querySelector('#setup-footnote').textContent.includes('Gotowy'));
   assert.equal(await page.locator('#update-notice').isVisible(), false);
-  assert.deepEqual(await page.evaluate(async () => (await caches.keys()).filter(k => k.startsWith('race-focus-offline-'))), ['race-focus-offline-v2']);
+  assert.deepEqual(await page.evaluate(async () => (await caches.keys()).filter(k => k.startsWith('race-focus-offline-'))), [`race-focus-offline-v${workerRevision}`]);
   console.log('PASS: real service-worker update waits during gameplay, applies on request and cleans the old cache.');
 
   await context.setOffline(true);

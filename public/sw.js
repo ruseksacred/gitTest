@@ -1,5 +1,5 @@
-// Bump this version whenever the offline page or its assets change.
-const CACHE = 'race-focus-offline-v1';
+// Bump on each app release so installed clients also see the update prompt.
+const CACHE = 'race-focus-offline-v2';
 const OFFLINE_ASSETS = ['/offline.html', '/pwa.css', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/apple-touch-icon.png'];
 
 self.addEventListener('install', event => {

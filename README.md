@@ -27,6 +27,10 @@ Serwer nasłuchuje na porcie **3000**, na wszystkich interfejsach. `npm run dev`
 - Osobne rekordy i średnie solo dla każdego rozmiaru; bilans wygranych, przegranych i remisów; ostatnie wyniki z karami. Interfejs pokazuje 6 ostatnich, API zwraca 20.
 - Jedna aktywna karta gry na konto. Druga karta pokazuje komunikat i pozwala ponownie połączyć się po zamknięciu pierwszej.
 
+Po utracie połączenia aplikacja próbuje automatycznie połączyć się ponownie. Sprawdza odpowiedź serwera po powrocie na ekran gry oraz przed rozpoczęciem treningu, utworzeniem pokoju i dołączeniem kodem. Nawet po uśpieniu połączenia przez telefon można rozpocząć kolejny pojedynek bez odświeżania i ponownego logowania. Ukończony, zapisany wynik pozostaje na ekranie; statystyki są ponownie pobierane z serwera.
+
+Przerwanego meczu nie wznawiamy: nadal obowiązuje walkower, a kliknięcia i gotowość nie są wysyłane ponownie. Gdy zawiedzie kilka automatycznych prób, pozostaje przycisk „Połącz ponownie”. Inna karta tego samego konta nadal nie może przejąć gry. W następnej rundzie jedna osoba tworzy **nowy pokój**, a druga dołącza jego nowym kodem.
+
 ## Instalacja na telefonie (PWA)
 
 Po opublikowaniu pod adresem **HTTPS** gra może mieć własną ikonę i otwierać się w osobnym oknie, bez paska przeglądarki. Te same konta, pokoje i wyniki działają na Androidzie, iPhonie i komputerze. Każdy gracz używa własnego konta i tego samego adresu serwera.
@@ -39,7 +43,7 @@ Po instalacji na iOS może być potrzebne ponowne logowanie, ponieważ system mo
 
 **Internet jest wymagany także do treningu solo.** Po pierwszym poprawnym otwarciu aplikacja zapisuje wyłącznie publiczny ekran informujący o braku połączenia i jego zasoby. Nie zapisuje w cache kont, haseł, odpowiedzi API, wyników ani plansz. Nie kolejkuje kliknięć ani wyników do późniejszej synchronizacji. Przerwane pojedynki nadal podlegają regule walkowera.
 
-Nowa wersja pojawia się jako komunikat z przyciskiem **Zaktualizuj**. Komunikat jest ukryty, a aktualizacja zablokowana podczas gry, w pokoju oraz przy niezapisanym wyniku. Aktualizacja nigdy sama nie odświeża meczu, również gdy uruchomiono ją w innej karcie. Przy zmianie zasobów offline zwiększ wersję cache w `public/sw.js`.
+Nowa wersja pojawia się jako komunikat z przyciskiem **Zaktualizuj**. Komunikat jest ukryty, a aktualizacja zablokowana podczas gry, w pokoju oraz przy niezapisanym wyniku. Aktualizacja nigdy sama nie odświeża meczu, również gdy uruchomiono ją w innej karcie. Przy każdej publikacji nowej wersji zwiększ wersję cache w `public/sw.js`, aby aplikacja pokazała komunikat także przy zmianach samego kodu gry.
 
 To wersja instalowana ze strony. Publikacja w App Store i Google Play jest odrębnym etapem.
 
@@ -49,6 +53,7 @@ To wersja instalowana ze strony. Publikacja w App Store i Google Play jest odrę
 npm test
 npm run test:browser
 npm run test:pwa
+npm run test:reconnect
 ```
 
 Testy serwera sprawdzają autoryzację, walidację, wszystkie rozmiary plansz, kary, wspólny start, remis, wyniki, walkower, limit czasu, granice pokoi, ponawianie zapisu po awarii bazy, HTTPS za reverse proxy oraz odtworzenie danych po restarcie. Korzystają z oddzielnych baz testowych. Zmienna `TEST_DATABASE_URL` pozwala uruchomić ten sam zestaw oraz test przeglądarkowy na PostgreSQL; instrukcja w [DEPLOY.md](DEPLOY.md).
@@ -56,6 +61,8 @@ Testy serwera sprawdzają autoryzację, walidację, wszystkie rozmiary plansz, k
 Test przeglądarkowy używa Playwright i systemowego Chromium pod `/usr/bin/chromium`. Na innym systemie ustaw `CHROMIUM_PATH` na plik wykonywalny przeglądarki. Uruchamia dwa oddzielne konteksty, w tym dotykowy widok telefonu, i przechodzi przez rejestrację, trening, pojedynek i ponowne logowanie. Zrzuty ekranu zapisuje w ignorowanym katalogu `test-results/`. Test używa `--no-sandbox` wyłącznie dla przeglądarki testowej w kontenerze.
 
 `npm run test:pwa` sprawdza manifest i rozmiary ikon, instrukcję iPhone’a, rzeczywisty cykl aktualizacji service workera podczas treningu, nawigację offline oraz brak danych konta w cache. Używa Chromium z emulacją telefonu; wywołanie systemowego okna instalacji jest symulowane. Nie zastępuje sprawdzenia instalacji na fizycznym iPhonie w Safari po wdrożeniu HTTPS.
+
+`npm run test:reconnect` rozgrywa trzy pojedynki z tymi samymi kontami: po pierwszym symuluje utratę internetu, a po drugim połączenie, które pozornie jest otwarte, ale nie odpowiada. Sprawdza kolejną rozgrywkę bez przeładowania strony, brak podwójnych wyników oraz ochronę przed drugą kartą.
 
 ## Dane i konfiguracja
 

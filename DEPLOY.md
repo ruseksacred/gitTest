@@ -73,6 +73,12 @@ Przed pierwszą wspólną grą sprawdźcie na obu telefonach: uruchomienie z iko
 
 Bez internetu dostępny jest wyłącznie ekran informacyjny, nie trening ani pojedynki. Automatyczne testy obejmują Chromium z emulacją telefonu; instalację w systemowym Safari trzeba jeszcze potwierdzić na fizycznym iPhonie pod opublikowanym adresem.
 
+### Aktualizacja po poprawce połączenia
+
+Nowe commity na `race-focus-free-hosting` powinny uruchamiać wdrożenie Render, jeśli włączono Auto-Deploy. Sprawdź status **Live** dla najnowszego commita. Jeśli automatyczne wdrożenie jest wyłączone, wybierz **Manual Deploy → Deploy latest commit**. Następnie odśwież stronę na obu telefonach albo wybierz **Zaktualizuj**, jeżeli aplikacja pokazuje komunikat o nowej wersji.
+
+Przy komunikacie o utracie połączenia aplikacja automatycznie próbuje je odtworzyć. Ukończony mecz nie jest liczony ponownie. Rozpoczęty mecz pozostaje przerwany zgodnie z regułą walkowera. Aby rozegrać kolejną rundę, jedna osoba tworzy nowy pokój i przekazuje **nowy** kod drugiej osobie.
+
 ## Ograniczenia darmowej wersji
 
 Render Free może usypiać serwer po bezczynności, a Neon może usypiać bazę. Pierwsze otwarcie po przerwie może potrwać dłużej. Bieżące limity godzin, transferu i bazy sprawdzisz w panelach dostawców. Nie dodawaj automatycznego pingowania w celu obchodzenia usypiania.

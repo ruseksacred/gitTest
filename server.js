@@ -107,10 +107,12 @@ export async function createApp({ database = process.env.DATABASE_URL || process
   server.on('upgrade', async (req, socket, head) => {
     socket.on('error', () => socket.destroy());
     try {
-      if (req.url !== '/ws' || req.headers.origin !== expectedOrigin(req)) { socket.write('HTTP/1.1 403 Forbidden\r\n\r\n'); socket.destroy(); return; }
+      const url = new URL(req.url, 'http://localhost');
+      const clientId = url.searchParams.get('client');
+      if (url.pathname !== '/ws' || (clientId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(clientId)) || req.headers.origin !== expectedOrigin(req)) { socket.write('HTTP/1.1 403 Forbidden\r\n\r\n'); socket.destroy(); return; }
       const user = await userFor(req);
       if (!user) { socket.write('HTTP/1.1 403 Forbidden\r\n\r\n'); socket.destroy(); return; }
-      if (!socket.destroyed) wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, user, cookieToken(req)));
+      if (!socket.destroyed) wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, user, cookieToken(req), clientId));
     } catch { socket.write('HTTP/1.1 503 Service Unavailable\r\n\r\n'); socket.destroy(); }
   });
   const send = (client, data) => { if (client.ws.readyState === WebSocket.OPEN) client.ws.send(JSON.stringify(data)); };
@@ -173,6 +175,7 @@ export async function createApp({ database = process.env.DATABASE_URL || process
   }
   async function command(c, data) {
     if (!data || typeof data !== 'object') throw Error('Nieprawidłowe polecenie.');
+    if (data.action === 'ping') { if (Number.isSafeInteger(data.id)) send(c, { type: 'pong', id: data.id }); return; }
     const g = c.game;
     if (['solo', 'create', 'join'].includes(data.action)) {
       if (g && g.phase !== 'complete') throw Error('Najpierw zakończ lub opuść aktualną grę.');
@@ -206,10 +209,19 @@ export async function createApp({ database = process.env.DATABASE_URL || process
       if (g.players.every(p => p.score !== null)) finish(g); else broadcast(g);
     } else throw Error('Nieznane polecenie.');
   }
-  wss.on('connection', (ws, user, token) => {
-    if (clients.has(user.id)) { ws.close(4001, 'Konto jest otwarte w innej karcie.'); return; }
-    const c = { ws, user, tokenHash: hash(token), revoked: false, game: null, alive: true, count: 0, window: Date.now() };
+  wss.on('connection', (ws, user, token, clientId) => {
+    const previous = clients.get(user.id);
+    let released = Promise.resolve();
+    if (previous) {
+      if (!clientId || previous.clientId !== clientId || previous.tokenHash !== hash(token)) { ws.close(4001, 'Konto jest otwarte w innej karcie.'); return; }
+      previous.revoked = true;
+      clients.delete(user.id);
+      released = leave(previous);
+      previous.ws.terminate();
+    }
+    const c = { ws, user, clientId, tokenHash: hash(token), revoked: false, game: null, alive: true, count: 0, window: Date.now() };
     clients.set(user.id, c); send(c, { type: 'connected' });
+    released.then(() => { if (previous && clients.get(user.id) === c) send(c, { type: 'refresh-stats' }); }).catch(() => console.error('Błąd zamykania poprzedniego połączenia.'));
     ws.on('pong', () => { c.alive = true; });
     ws.on('message', async raw => {
       try {
@@ -221,7 +233,7 @@ export async function createApp({ database = process.env.DATABASE_URL || process
         await command(c, JSON.parse(raw));
       } catch (error) { send(c, { type: 'error', message: error instanceof SyntaxError ? 'Nieprawidłowe dane.' : error.message }); }
     });
-    ws.on('close', () => { clients.delete(user.id); leave(c).catch(() => console.error('Błąd zamykania rozgrywki.')); });
+    ws.on('close', () => { if (clients.get(user.id) === c) clients.delete(user.id); leave(c).catch(() => console.error('Błąd zamykania rozgrywki.')); });
     ws.on('error', () => ws.terminate());
   });
   const heartbeat = setInterval(() => {
