@@ -42,7 +42,7 @@ export async function createApp({ database = process.env.DATABASE_URL || process
   // Render health probes must not keep a free Neon database awake all day.
   // /api/ready is the explicit database readiness check used during deployment.
   app.get('/api/health', (req, res) => res.json({ ok: true }));
-  app.get('/api/version', (req, res) => res.json({ release: 'app-navigation-1', commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'local', transports: ['websocket', 'https'] }));
+  app.get('/api/version', (req, res) => res.json({ release: 'race-delta-1', commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'local', transports: ['websocket', 'https'] }));
   app.get('/api/ready', async (req, res) => { await db.get('SELECT 1'); res.json({ ok: true, database: db.dialect }); });
   app.use('/api', (req, res, next) => {
     if (req.method !== 'GET' && (req.headers.origin && req.headers.origin !== expectedOrigin(req))) return res.status(403).json({ error: 'Niedozwolone pochodzenie żądania.' });
@@ -248,28 +248,9 @@ export async function createApp({ database = process.env.DATABASE_URL || process
     if (remaining > 0) { game.startTimer = setTimeout(() => greenLight(game), remaining); return; }
     game.phase = 'racing'; broadcast(game);
   }
-  async function lapReferences(game) {
-    return Promise.all(game.players.map(async p => {
-      const row = await db.get(`SELECT r.score,t.splits FROM results r JOIN matches m ON m.id=r.match_id JOIN lap_telemetry t ON t.match_id=r.match_id AND t.user_id=r.user_id WHERE r.user_id=? AND m.size=? AND r.score IS NOT NULL ORDER BY r.score ASC,m.id ASC LIMIT 1`, p.id, game.size);
-      if (!row) return { id: p.id, best: null };
-      const splits = JSON.parse(row.splits);
-      return { id: p.id, best: Array.isArray(splits) && splits.length === game.size ** 2 && splits.every(n => Number.isInteger(n) && n >= 0) ? { score: row.score, splits, historical: true } : null };
-    }));
-  }
-  async function startTraining(game) {
-    game.phase = 'preparing'; broadcast(game);
-    let references;
-    try { references = await lapReferences(game); }
-    catch {
-      if (game.phase === 'preparing') {
-        game.phase = 'cancelled'; games.delete(game.id);
-        const c = clients.get(game.players[0].id);
-        if (c?.game === game) { c.game = null; send(c, { type: 'state', game: null }); }
-      }
-      throw Error('Nie udało się przygotować pomiaru. Spróbuj ponownie rozpocząć trening.');
-    }
-    if (game.phase !== 'preparing' || !playersPresent(game)) return;
-    prepareLaps(game, { size: game.size, laps: game.training.laps }, Date.now() + countdownMs, references);
+  function startTraining(game) {
+    if (!playersPresent(game)) return;
+    prepareLaps(game, { size: game.size, laps: game.training.laps }, Date.now() + countdownMs);
     game.phase = 'countdown'; game.deadline = game.startAt + roundMs * game.training.laps;
     game.startTimer = setTimeout(() => greenLight(game), countdownMs);
     game.endTimer = setTimeout(() => finish(game, 'timeout'), countdownMs + roundMs * game.training.laps);
@@ -301,16 +282,9 @@ export async function createApp({ database = process.env.DATABASE_URL || process
     })();
     return game.finishPromise;
   }
-  async function startChampionshipRace(game) {
-    game.phase = 'preparing'; broadcast(game);
-    let references;
-    try { references = await lapReferences(game); }
-    catch {
-      if (game.phase === 'preparing') { game.phase = 'waiting'; for (const p of game.players) p.ready = false; broadcast(game); }
-      throw Error('Nie udało się przygotować pomiaru wyścigu. Spróbuj ponownie potwierdzić gotowość.');
-    }
-    if (game.phase !== 'preparing' || !roomPlayersPresent(game)) return;
-    prepareRace(game, Date.now() + countdownMs, references);
+  function startChampionshipRace(game) {
+    if (!roomPlayersPresent(game)) return;
+    prepareRace(game, Date.now() + countdownMs);
     game.phase = 'countdown';
     game.deadline = game.startAt + roundMs * game.championship.tracks[game.round - 1].laps;
     game.startTimer = setTimeout(() => greenLight(game), countdownMs);

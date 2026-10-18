@@ -25,6 +25,9 @@
 }
 
 /* Solo keeps the same timing instruments as a championship race. */
+.lap-driver-filter { display: grid; gap: 10px; margin: 24px 0; max-width: 360px; font-size: 13px; }
+.lap-driver-filter>span { color: var(--muted); }
+.lap-driver-filter select { width: 100%; min-height: 44px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--text); padding: 10px 12px; font: inherit; }
 .solo-lap-choice { display: flex; align-items: center; gap: 20px; margin: 22px 0; }
 .solo-lap-choice label { display: grid; gap: 8px; flex: 0 0 110px; font-size: 12px; }
 .solo-lap-choice input { padding: 11px; }

@@ -86,7 +86,7 @@ function setup() {
   document.querySelectorAll('[data-size]').forEach(b => { const selected = +b.dataset.size === size; b.classList.toggle('selected', selected); b.setAttribute('aria-pressed', selected); });
   $('#size-description').textContent = `${size ** 2} liczb · ${{ 4: 'standard', 5: 'wyzwanie', 6: 'ekspert', 7: 'mistrz' }[size]}`;
   $('#mode-title').textContent = mode === 'solo' ? 'Ty kontra stoper.' : 'Wasze własne mistrzostwa.';
-  $('#mode-description').textContent = mode === 'solo' ? 'Wybierz tor i liczbę okrążeń. Każda plansza to jedno kółko. Śledź czasy i deltę do własnego najlepszego przejazdu.' : 'Jeden tor to wyścig, jedna plansza to okrążenie. Jedziecie płynnie, a punkty z wyścigów tworzą klasyfikację mistrzostw.';
+  $('#mode-description').textContent = mode === 'solo' ? 'Wybierz tor i liczbę okrążeń. Każda plansza to jedno kółko. Śledź czasy i deltę do własnego najlepszego kółka w tym treningu.' : 'Jeden tor to wyścig, jedna plansza to okrążenie. Jedziecie płynnie, a punkty z wyścigów tworzą klasyfikację mistrzostw.';
   $('#start-button').innerHTML = `${mode === 'solo' ? 'Rozpocznij trening' : 'Utwórz mistrzostwa'} <span>→</span>`;
   $('#join-section').hidden = mode !== 'duel';
   $('#solo-settings').hidden = mode !== 'solo';

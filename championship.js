@@ -5,9 +5,9 @@ export function createChampionship(tracks) {
   return { id: randomUUID(), tracks: tracks.map(({ size, laps }) => ({ size, laps })), createdAt: Date.now(), status: 'active', finishedAt: null, forfeiter: null, races: [], report: null };
 }
 
-// Both solo training and championships use the same lap clock and PB checkpoints.
-export function prepareRace(game, startAt, references = []) {
-  prepareLaps(game, game.championship.tracks[game.round - 1], startAt, references);
+// Both solo training and championships use the same lap clock and current-race checkpoints.
+export function prepareRace(game, startAt) {
+  prepareLaps(game, game.championship.tracks[game.round - 1], startAt);
 }
 export function raceHit(game, p, data, now) {
   return lapHit(game, p, data, now, game.championship.tracks[game.round - 1].laps);

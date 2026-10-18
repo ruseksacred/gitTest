@@ -63,9 +63,12 @@ try {
     await Promise.all([a.locator('.result-time').waitFor(), b.locator('.result-time').waitFor()]);
     totalLaps += laps;
     assert.equal(await a.locator('#current-championship-report .championship-laps tbody tr').count(), totalLaps * 2);
+    await a.locator('#current-championship-report [data-lap-driver]').selectOption(String(users[1].id));
+    assert.equal(await a.locator('#current-championship-report .championship-laps tbody tr:visible').count(), totalLaps);
     if (index === 3) break;
     await a.locator('[data-action="rematch"]').click();
     await a.waitForFunction(() => document.querySelector('#rematch-status').textContent.includes('Czekamy na rywala'));
+    assert.equal(await a.locator('#current-championship-report [data-lap-driver]').inputValue(), String(users[1].id));
     assert.equal(await b.locator('.result-time').isVisible(), true);
     await b.locator('[data-action="rematch"]').click();
   }
@@ -79,11 +82,22 @@ try {
   assert.equal(report.races.length, 4); assert.equal(report.players[0].points, 7); assert.equal(report.players[1].points, 5);
   for (const page of [a, b]) { await page.locator('#duel-history [data-duel-report]').click(); await page.locator('#duel-report-dialog').waitFor(); }
   assert.equal(await a.locator('#duel-report-content .championship-laps tbody tr').count(), 10);
+  for (const [page, me, rival] of [[a, users[0], users[1]], [b, users[1], users[0]]]) {
+    const filter = page.locator('#duel-report-content [data-lap-driver]');
+    assert.equal(await filter.inputValue(), String(page === a ? users[1].id : me.id));
+    assert.equal(await page.locator('#duel-report-content .championship-laps tbody tr:visible').count(), 5);
+    await filter.selectOption(String(rival.id));
+    const names = await page.locator('#duel-report-content .championship-laps tbody tr:visible th').allTextContents();
+    assert.deepEqual(names, Array(5).fill(rival.username));
+    // Selecting a driver only filters lap detail; standings remain complete.
+    assert.equal(await page.locator('#duel-report-content .duel-standings article:visible').count(), 2);
+  }
+  assert.ok(report.races.every(race => race.players.every(p => p.laps.every(lap => lap.deltaScope === 'session'))));
   assert.ok(await b.locator('#duel-report-dialog').evaluate(el => el.scrollWidth <= el.clientWidth));
   await a.screenshot({ path: 'test-results/championship-report-desktop.png' }); await b.screenshot({ path: 'test-results/championship-report-mobile.png' });
   await a.reload(); await a.locator('#duel-history [data-duel-report]').waitFor();
   assert.deepEqual((await (await a.request.get(`${base}/api/duels/${id}`)).json()).report, report);
   await a.locator('[data-action="logout"]').click(); await a.waitForFunction(() => document.querySelector('#duel-history').textContent.includes('Zaloguj się'));
   assert.deepEqual(errors, []);
-  console.log('Championship passed: continuous independent laps, live cumulative gaps, PB deltas, four races, 7:5 points, WS/HTTPS, saved report and responsive layout.');
+  console.log('Championship passed: continuous independent laps, current-race deltas, four races, 7:5 points, WS/HTTPS, per-driver lap filters, preserved selection, saved report and responsive layout.');
 } finally { await browser.close(); await app.close(); await target.cleanup(); }

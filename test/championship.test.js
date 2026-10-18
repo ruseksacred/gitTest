@@ -31,15 +31,27 @@ test('continuous race: a driver starts lap two immediately, with common boards a
   assert.ok(!JSON.stringify(raceState(g, a.id)).includes('splits'), 'Timing state must not expose reference arrays or future boards');
 });
 
-test('checkpoint delta uses the matching reference point and includes penalties; personal history can seed the first lap', () => {
-  const g = game(1), [a] = g.players;
-  prepareRace(g, 1000, [{ id: a.id, best: { score: 160, splits: Array.from({ length: 16 }, (_, i) => (i + 1) * 10), historical: true } }]);
-  hit(g, a, 1, 1050); assert.equal(a.delta.value, -5);
-  hit(g, a, 7, 1060); assert.equal(a.delta.value, 95);
-  hit(g, a, 2, 1100); assert.equal(a.delta.value, 90);
-  for (let n = 3; n <= 16; n++) hit(g, a, n, 1000 + n * 50);
-  assert.equal(a.finished, true); assert.equal(a.score, 180);
-  assert.equal(a.laps[0].delta, 20); assert.equal(a.best.score, 160);
+test('delta uses only the driver’s best completed lap in this race, updates on faster laps and resets at the next race', () => {
+  const g = game(3), [a, b] = g.players;
+  // A faster reference from a previous race is never used.
+  a.best = { score: 1, splits: Array(16).fill(1), historical: true };
+  prepareRace(g, 1000);
+  hit(g, a, 1, 1100); assert.equal(a.delta, null);
+  for (let n = 2; n <= 16; n++) hit(g, a, n, 1000 + n * 100);
+  assert.equal(a.best.score, 160); assert.equal(a.laps[0].delta, null);
+  assert.equal(a.laps[0].deltaScope, 'session');
+  assert.equal(b.best, null, 'Each driver keeps their own lap reference');
+  hit(g, a, 1, 2650); assert.equal(a.delta.value, -5);
+  hit(g, a, 7, 2660); assert.equal(a.delta.value, 95);
+  hit(g, a, 2, 2700); assert.equal(a.delta.value, 90);
+  for (let n = 3; n <= 16; n++) hit(g, a, n, 2600 + n * 50);
+  assert.equal(a.laps[1].score, 180); assert.equal(a.best.score, 160);
+  for (let n = 1; n <= 16; n++) hit(g, a, n, 3400 + n * 50);
+  assert.equal(a.finished, true); assert.equal(a.best.score, 80);
+  assert.equal(a.laps[2].delta, -80);
+  prepareRace(g, 5000);
+  assert.equal(a.best, null); assert.equal(a.delta, null);
+  hit(g, a, 1, 5100); assert.equal(a.delta, null);
 });
 
 test('race classification awards points once per track, from last to first, and shares tied positions', () => {

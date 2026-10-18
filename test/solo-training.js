@@ -75,9 +75,11 @@ try {
   await a.locator('[data-action="again"]').click();
   await a.locator('[data-number="1"]').waitFor();
   assert.match(await a.locator('#solo-lap-label').textContent(), /1\/3/);
-  assert.match(await a.locator('#pb-meta').textContent(), /poprzednich przejazdów/);
+  assert.match(await a.locator('#pb-meta').textContent(), /Pierwsze kółko/);
+  assert.equal(await a.locator('#pb-time').textContent(), '—');
   await a.locator('[data-number="1"]').click();
-  await a.waitForFunction(() => document.querySelector('#pb-delta').textContent !== '—');
+  await a.waitForFunction(() => document.querySelector('#next-number')?.textContent === '2');
+  assert.equal(await a.locator('#pb-delta').textContent(), '—');
   await a.locator('[data-action="leave"]').click(); await a.locator('[data-action="confirm-leave"]').click();
   await a.locator('#setup').waitFor();
 
@@ -99,5 +101,5 @@ try {
   await a.locator('[data-size="4"]').click();
   await a.waitForFunction(() => document.querySelector('#record-meta').textContent.includes('3 ukończonych okrążeń'));
   assert.deepEqual(errors, []);
-  console.log('Solo training passed: track/lap selection, three continuous laps, penalties, live PB delta, per-lap ranking, repeated training, saved PB, 320px phone and HTTPS fallback.');
+  console.log('Solo training passed: track/lap selection, three continuous laps, penalties, current-session delta, per-lap ranking, repeated training, reset reference, 320px phone and HTTPS fallback.');
 } finally { await browser.close(); await app.close(); await target.cleanup(); }

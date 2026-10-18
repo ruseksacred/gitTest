@@ -341,7 +341,7 @@ test('planned match: report rollback and a lost acknowledgement can be retried w
   assert.equal((await app.db.get('SELECT COUNT(*) count FROM results WHERE user_id=?', a.id)).count, 1);
 });
 
-test('solo training: continuous laps, penalties, PB checkpoints and ranked records seed the next training', async t => {
+test('solo training: continuous laps, penalties, session checkpoints reset for the next training', async t => {
   const { register, request, app } = await fixture(t, { countdownMs: 1100 });
   const a = await register('SoloLaps');
   a.send('solo', { size: 4, laps: 2 });
@@ -382,10 +382,9 @@ test('solo training: continuous laps, penalties, PB checkpoints and ranked recor
   assert.equal((await app.db.get('SELECT COUNT(*) count FROM lap_telemetry')).count, 2);
   a.messages.length = 0; a.send('solo', { size: 4, laps: 1 });
   const replay = (await a.wait(phase('racing'))).game;
-  assert.equal(replay.training.driver.best.historical, true);
-  assert.equal(replay.training.driver.best.score, Math.min(...laps.map(l => l.score)));
+  assert.equal(replay.training.driver.best, null, 'Previous training records must not seed the delta');
   a.send('hit', { raceId: replay.raceId, lap: 1, number: 1 });
-  assert.notEqual((await a.wait(m => m.game?.training?.driver.next === 2)).game.training.driver.delta, null);
+  assert.equal((await a.wait(m => m.game?.training?.driver.next === 2)).game.training.driver.delta, null);
 });
 
 test('solo training: invalid lap counts and track sizes do not start a game', async t => {
@@ -470,21 +469,21 @@ test('solo training: reconnect during a pending partial save refreshes stats aft
   assert.equal((await request('runs?mode=solo&size=4', undefined, b.cookie)).body.total, 1);
 });
 
-test('solo training: cancelling while loading PB cannot start a detached countdown', async t => {
-  const { register, app } = await fixture(t);
+test('solo training: cancellation clears the countdown and starting again does not read historical telemetry', async t => {
+  const { register, app } = await fixture(t, { countdownMs: 200 });
   const a = await register('SoloCancel');
   const get = app.db.get;
-  let release, reached;
-  const blocked = new Promise(resolve => { release = resolve; });
-  const queried = new Promise(resolve => { reached = resolve; });
-  app.db.get = async (sql, ...args) => { if (sql.includes('JOIN lap_telemetry')) { reached(); await blocked; } return get(sql, ...args); };
-  a.send('solo', { size: 4, laps: 2 }); await queried;
+  let historyReads = 0;
+  app.db.get = async (sql, ...args) => { if (sql.includes('JOIN lap_telemetry')) { historyReads++; throw Error('Historical data unavailable'); } return get(sql, ...args); };
+  a.send('solo', { size: 4, laps: 2 }); await a.wait(phase('countdown'));
   a.send('leave'); await a.wait(m => m.type === 'state' && m.game === null);
-  release(); app.db.get = get;
   a.messages.length = 0; a.send('solo', { size: 5, laps: 1 });
   const racing = (await a.wait(phase('racing'))).game;
   assert.equal(racing.size, 5); assert.equal(racing.board.length, 25);
+  assert.equal(racing.training.driver.best, null);
+  assert.equal(historyReads, 0);
   assert.ok(!a.messages.some(m => m.game?.size === 4));
+  app.db.get = get;
 });
 
 test('championship: independent laps, same per-lap boards, exact gaps, race points and persisted telemetry', async t => {
@@ -531,6 +530,7 @@ test('championship: independent laps, same per-lap boards, exact gaps, race poin
   a.send('rematch', { matchId: result.matchId }); b.send('rematch', { matchId: result.matchId });
   const next = (await a.wait(phase('racing'))).game;
   assert.equal(next.size, 5); assert.equal(next.round, 2); assert.equal(next.code, room.code);
+  assert.ok(next.championship.drivers.every(p => p.best === null && p.delta === null));
   for (const client of [a, b]) for (let n = 1; n <= 25; n++) client.send('hit', { raceId: next.raceId, lap: 1, number: n });
   const final = (await a.wait(m => m.game?.phase === 'complete' && m.game.raceId === next.raceId)).game;
   assert.equal(final.championship.report.status, 'complete');
@@ -539,8 +539,7 @@ test('championship: independent laps, same per-lap boards, exact gaps, race poin
   a.messages.length = b.messages.length = 0;
   a.send('rematch', { matchId: final.matchId }); b.send('rematch', { matchId: final.matchId });
   const replay = (await a.wait(phase('racing'))).game;
-  assert.equal(replay.championship.drivers.find(p => p.me).best.historical, true);
-  assert.equal(replay.championship.drivers.find(p => p.me).best.score, Math.min(...report.races[0].players.find(p => p.id === a.id).laps.map(l => l.score)));
+  assert.ok(replay.championship.drivers.every(p => p.best === null && p.delta === null), 'A rematch starts with no lap reference');
 });
 
 test('championship: a telemetry write failure rolls back all laps and retries award race points once', async t => {
@@ -567,7 +566,7 @@ test('championship: a telemetry write failure rolls back all laps and retries aw
   assert.equal((await request('stats', undefined, a.cookie)).body.history.length, 1);
 });
 
-for (const phaseToLeave of ['complete', 'preparing']) test(`championship: leaving at ${phaseToLeave} forfeits the standings without an unplayed race`, async t => {
+test('championship: leaving between races forfeits the standings without an unplayed race', async t => {
   const { register, request, app } = await fixture(t);
   const a = await register('ChampExitA'), b = await register('ChampExitB');
   a.send('create', { championship: true, tracks: [{ size: 4, laps: 1 }, { size: 5, laps: 1 }] });
@@ -576,17 +575,7 @@ for (const phaseToLeave of ['complete', 'preparing']) test(`championship: leavin
   const g = (await a.wait(phase('racing'))).game;
   for (const c of [a, b]) for (let n = 1; n <= 16; n++) c.send('hit', { raceId: g.raceId, lap: 1, number: n });
   const saved = (await a.wait(phase('complete'))).game;
-  let release = () => {};
-  const get = app.db.get;
-  if (phaseToLeave === 'preparing') {
-    const gate = new Promise(resolve => { release = resolve; });
-    app.db.get = async (...args) => { await gate; return get(...args); };
-    a.messages.length = b.messages.length = 0;
-    a.send('rematch', { matchId: saved.matchId }); b.send('rematch', { matchId: saved.matchId });
-    await a.wait(phase('preparing'));
-  }
   a.send('leave'); await a.wait(m => m.type === 'state' && m.game === null);
-  release(); app.db.get = get;
   const ended = (await b.wait(m => m.game?.phase === 'complete' && m.game.championship?.status === 'forfeit' && m.game.saved)).game;
   assert.equal(ended.championship.report.winner, b.id);
   assert.equal(ended.championship.report.races.length, 1);
