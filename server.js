@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { openDatabase } from './database.js';
 import { createHttpChannel } from './http-channel.js';
 import { parseRunFilters, rankedRuns } from './runs.js';
+import { parseTracks, createDuel, roundReport, duelReport, saveDuel } from './duels.js';
 
 const scrypt = promisify(scryptCallback);
 const root = dirname(fileURLToPath(import.meta.url));
@@ -21,6 +22,9 @@ export async function createApp({ database = process.env.DATABASE_URL || process
     catch { throw Error('PUBLIC_ORIGIN musi być samym adresem strony, np. https://gra.onrender.com.'); }
   }
   const db = await openDatabase(database, { schema: databaseSchema });
+  // A process restart ends in-memory rooms. Preserve partial reports and make
+  // their status explicit instead of advertising them as resumable matches.
+  await db.run("UPDATE duel_events SET status='interrupted' WHERE status='active'");
   const clients = new Map(), rooms = new Map(), games = new Map();
   const app = express();
   const expectedOrigin = req => publicOrigin || `${req.socket.encrypted ? 'https' : 'http'}://${req.headers.host}`;
@@ -35,7 +39,7 @@ export async function createApp({ database = process.env.DATABASE_URL || process
   // Render health probes must not keep a free Neon database awake all day.
   // /api/ready is the explicit database readiness check used during deployment.
   app.get('/api/health', (req, res) => res.json({ ok: true }));
-  app.get('/api/version', (req, res) => res.json({ release: 'room-rematches-1', commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'local', transports: ['websocket', 'https'] }));
+  app.get('/api/version', (req, res) => res.json({ release: 'planned-duels-1', commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'local', transports: ['websocket', 'https'] }));
   app.get('/api/ready', async (req, res) => { await db.get('SELECT 1'); res.json({ ok: true, database: db.dialect }); });
   app.use('/api', (req, res, next) => {
     if (req.method !== 'GET' && (req.headers.origin && req.headers.origin !== expectedOrigin(req))) return res.status(403).json({ error: 'Niedozwolone pochodzenie żądania.' });
@@ -125,6 +129,21 @@ export async function createApp({ database = process.env.DATABASE_URL || process
     if (!filters) return res.status(400).json({ error: 'Wybierz tryb, planszę 4×4, 5×5, 6×6 lub 7×7 oraz poprawny numer strony.' });
     res.json(await rankedRuns(db, req.user.id, filters));
   });
+  app.get('/api/duels', requireUser, async (req, res) => {
+    const rows = await db.all('SELECT id,status,report FROM duel_events WHERE player_a=? OR player_b=? ORDER BY created_at DESC,id DESC LIMIT 20', req.user.id, req.user.id);
+    res.json({ matches: rows.map(row => {
+      const report = JSON.parse(row.report);
+      return { id: row.id, status: row.status, createdAt: report.createdAt, winner: row.status === 'interrupted' ? null : report.winner, players: report.players, tracks: report.tracks.map(({ size, laps, points }) => ({ size, laps, points })), completedRounds: report.completedRounds, totalRounds: report.totalRounds };
+    }) });
+  });
+  app.get('/api/duels/:id', requireUser, async (req, res) => {
+    const row = await db.get('SELECT status,report FROM duel_events WHERE id=? AND (player_a=? OR player_b=?)', req.params.id, req.user.id, req.user.id);
+    if (!row) return res.status(404).json({ error: 'Nie znaleziono meczu.' });
+    const report = JSON.parse(row.report);
+    report.status = row.status;
+    if (row.status === 'interrupted') report.winner = null;
+    res.json({ report });
+  });
   app.use(express.static(resolve(root, 'public'), { setHeaders(res, path) {
     if (path.endsWith('/sw.js')) { res.setHeader('Cache-Control', 'no-cache'); res.setHeader('Service-Worker-Allowed', '/'); }
     if (path.endsWith('/manifest.webmanifest')) res.setHeader('Content-Type', 'application/manifest+json');
@@ -149,7 +168,10 @@ export async function createApp({ database = process.env.DATABASE_URL || process
     return c?.game === game && !c.revoked && c.ws.readyState === WebSocket.OPEN;
   });
   function state(game, id) {
+    const duel = game.duel;
+    const stage = duel?.schedule[game.round - 1];
     return { type: 'state', game: { id: game.id, round: game.round, matchId: game.matchId ?? null, mode: game.mode, code: game.mode === 'duel' ? game.id : null, canRematch: game.mode === 'duel' && game.phase === 'complete' && game.saved === true && roomPlayersPresent(game), size: game.size, phase: game.phase, startAt: game.startAt, deadline: game.startAt ? game.startAt + roundMs : null, serverNow: Date.now(), board: ['racing', 'saving', 'complete'].includes(game.phase) ? game.board : [], reason: game.reason, saved: game.saved ?? null,
+      duel: duel ? { id: duel.id, tracks: duel.tracks, totalRounds: duel.schedule.length, lap: stage.lap, laps: stage.laps, points: stage.points, status: duel.status, next: duel.status === 'active' ? duel.schedule[game.round] ?? null : null, standings: duel.report?.players ?? [], report: game.phase === 'complete' ? duel.report : null } : null,
       players: game.players.map(p => ({ id: p.id, username: p.username, ready: p.ready, next: p.next, errors: p.errors, elapsed: p.elapsed, score: p.score, outcome: p.outcome, me: p.id === id })) } };
   }
   function broadcast(game) { for (const p of game.players) { const c = clients.get(p.id); if (c?.game === game) send(c, state(game, p.id)); } }
@@ -159,6 +181,7 @@ export async function createApp({ database = process.env.DATABASE_URL || process
     if (game.phase === 'complete') return;
     clearTimeout(game.startTimer); clearTimeout(game.endTimer);
     game.phase = 'saving'; game.reason = reason; game.finishedAt = Date.now();
+    if (game.duel && reason === 'forfeit') { game.duel.status = 'forfeit'; game.duel.forfeiter = loser; game.duel.finishedAt = game.finishedAt; }
     for (const p of game.players) p.ready = false;
     const [a, b] = game.players;
     if (game.mode === 'solo') a.outcome = 'solo';
@@ -174,11 +197,18 @@ export async function createApp({ database = process.env.DATABASE_URL || process
     game.phase = 'saving'; broadcast(game);
     game.finishPromise = (async () => {
       try {
+        let report = null;
         game.matchId = await db.transaction(async tx => {
           const { id } = await tx.get('INSERT INTO matches(mode,size,finished_at,reason,save_key) VALUES (?,?,?,?,?) ON CONFLICT(save_key) DO UPDATE SET save_key=excluded.save_key RETURNING id', game.mode, game.size, game.finishedAt, game.reason, game.saveKey);
           for (const p of game.players) await tx.run('INSERT INTO results VALUES (?,?,?,?,?,?) ON CONFLICT(match_id,user_id) DO NOTHING', id, p.id, p.elapsed, p.errors, p.score, p.outcome);
+          if (game.duel) {
+            const rounds = [...game.duel.rounds.filter(r => r.index !== game.round), roundReport(game, id)];
+            report = duelReport(game.duel, game.players, rounds);
+            await saveDuel(tx, report);
+          }
           return id;
         });
+        if (report) { game.duel.report = report; game.duel.rounds = report.rounds; game.duel.status = report.status; game.duel.finishedAt = report.finishedAt; }
         game.saved = true;
       } catch { game.saved = false; console.error('Nie udało się zapisać wyniku meczu. Można ponowić zapis.'); }
       game.phase = 'complete'; rooms.delete(game.id);
@@ -207,6 +237,12 @@ export async function createApp({ database = process.env.DATABASE_URL || process
       if (g.mode === 'duel') await finish(g, 'forfeit', c.user.id);
       else { clearTimeout(g.startTimer); clearTimeout(g.endTimer); games.delete(g.id); }
     }
+    if (g.phase === 'complete' && g.duel?.status === 'active') {
+      // Leaving between laps forfeits the match, without inventing another lap
+      // or changing the already recorded times and points of the last lap.
+      g.duel.status = 'forfeit'; g.duel.forfeiter = c.user.id; g.duel.finishedAt = Date.now();
+      await persistResult(g);
+    }
     if (c.game === g) c.game = null;
     if (g.phase === 'complete') {
       // Keep the finished results intact for the remaining player, but cancel
@@ -233,11 +269,13 @@ export async function createApp({ database = process.env.DATABASE_URL || process
         if (room.phase !== 'waiting' || room.players.length >= 2 || rooms.get(room.id) !== room) throw Error('Pokój nie jest już dostępny.');
         c.game = room; room.players.push(player(c)); broadcast(room); return;
       }
-      if (![4, 5, 6, 7].includes(data.size)) throw Error('Wybierz rozmiar 4×4, 5×5, 6×6 lub 7×7.');
+      const tracks = data.action === 'create' && data.tracks !== undefined ? parseTracks(data.tracks) : null;
+      if (data.action === 'create' && data.tracks !== undefined && !tracks) throw Error('Wybierz 1–4 różne tory (4×4–7×7), po 1–10 okrążeń na każdym.');
+      if (!tracks && ![4, 5, 6, 7].includes(data.size)) throw Error('Wybierz rozmiar 4×4, 5×5, 6×6 lub 7×7.');
       if (g) await leave(c);
       if (c.game || c.revoked || c.ws.readyState !== WebSocket.OPEN) return;
       let id; do { id = randomBytes(4).toString('hex').slice(0, 6).toUpperCase(); } while (games.has(id));
-      const game = { id, round: 1, saveKey: randomUUID(), mode: data.action === 'solo' ? 'solo' : 'duel', size: data.size, phase: 'waiting', players: [player(c)], board: [] };
+      const game = { id, round: 1, saveKey: randomUUID(), mode: data.action === 'solo' ? 'solo' : 'duel', size: tracks ? tracks[0].size : data.size, duel: tracks ? createDuel(tracks) : null, phase: 'waiting', players: [player(c)], board: [] };
       c.game = game; games.set(id, game);
       if (game.mode === 'solo') start(game); else { rooms.set(id, game); broadcast(game); }
     } else if (data.action === 'leave') { await leave(c); send(c, { type: 'state', game: null }); }
@@ -253,7 +291,9 @@ export async function createApp({ database = process.env.DATABASE_URL || process
       if (!g.players.every(p => p.ready)) { broadcast(g); return; }
       // A fresh match object and save key isolate timers, retries and results
       // from previous rounds while both clients keep the same room code.
-      const next = { id: g.id, round: g.round + 1, saveKey: randomUUID(), mode: 'duel', size: g.size, phase: 'waiting', players: g.players.map(p => player(clients.get(p.id))), board: [] };
+      const duel = g.duel ? g.duel.status === 'active' ? g.duel : createDuel(g.duel.tracks) : null;
+      const round = g.duel && duel !== g.duel ? 1 : g.round + 1;
+      const next = { id: g.id, round, saveKey: randomUUID(), mode: 'duel', size: duel ? duel.schedule[round - 1].size : g.size, duel, phase: 'waiting', players: g.players.map(p => player(clients.get(p.id))), board: [] };
       for (const p of next.players) clients.get(p.id).game = next;
       games.set(next.id, next);
       start(next);

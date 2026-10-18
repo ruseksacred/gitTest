@@ -233,6 +233,114 @@ test('rematches: same-page transport replacement keeps the completed room and cl
   assert.equal(next.round, 2); assert.equal(next.code, finished.code);
 });
 
+test('planned match: chosen laps advance tracks, weighted points and private persistent reports', async t => {
+  const { register, request, app } = await fixture(t, { countdownMs: 1100 });
+  const a = await register('PlanA'), b = await register('PlanB'), outsider = await register('PlanC');
+  a.send('create', { tracks: [{ size: 7, laps: 1 }, { size: 4, laps: 1 }, { size: 5, laps: 2 }] });
+  const waiting = (await a.wait(phase('waiting'))).game;
+  assert.deepEqual(waiting.duel.tracks.map(t => [t.size, t.laps, t.points]), [[4, 1, 1], [5, 2, 1.5], [7, 1, 2.5]]);
+  b.send('join', { code: waiting.code }); await b.wait(phase('waiting'));
+  a.send('ready'); b.send('ready');
+  const sizes = [4, 5, 5, 7];
+  let report;
+  for (const [index, size] of sizes.entries()) {
+    const game = (await a.wait(phase('racing'))).game;
+    await b.wait(phase('racing'));
+    assert.equal(game.size, size); assert.equal(game.round, index + 1); assert.equal(game.code, waiting.code);
+    assert.deepEqual([...game.board].sort((a, b) => a - b), Array.from({ length: size ** 2 }, (_, i) => i + 1));
+    b.send('hit', { number: 2 }); await b.wait(m => m.game?.players.find(p => p.me).errors === 1);
+    await complete(a, size ** 2); await complete(b, size ** 2);
+    const finished = (await a.wait(phase('complete'))).game;
+    await b.wait(phase('complete'));
+    report = finished.duel.report;
+    assert.equal(report.rounds.length, index + 1); assert.equal(report.id, waiting.duel.id);
+    assert.equal(report.status, index === 3 ? 'complete' : 'active');
+    assert.equal(report.players.find(p => p.id === a.id).points, [1, 2.5, 4, 6.5][index]);
+    assert.equal((await request(`duels/${report.id}`, undefined, outsider.cookie)).status, 404);
+    assert.equal((await request(`duels/${report.id}`)).status, 401);
+    assert.deepEqual((await request(`duels/${report.id}`, undefined, b.cookie)).body.report, report);
+    if (index === 3) break;
+    a.send('rematch', { matchId: finished.matchId });
+    const ready = (await a.wait(m => m.game?.phase === 'complete' && m.game.players.find(p => p.me).ready)).game;
+    assert.equal(ready.size, size, 'The current result remains until both players are ready');
+    a.messages.length = b.messages.length = 0;
+    b.send('rematch', { matchId: finished.matchId });
+    const next = (await a.wait(phase('countdown'))).game;
+    assert.equal(next.size, sizes[index + 1]); assert.deepEqual(next.board, []);
+  }
+  assert.equal(report.winner, a.id);
+  assert.equal(report.players.find(p => p.id === b.id).points, 0);
+  assert.equal((await request('duels', undefined, a.cookie)).body.matches.length, 1);
+  assert.equal((await request('duels', undefined, outsider.cookie)).body.matches.length, 0);
+  assert.equal((await app.db.get('SELECT COUNT(*) count FROM results WHERE user_id=?', a.id)).count, 4);
+  // A rematch after the finale creates another match with the same schedule.
+  a.messages.length = b.messages.length = 0;
+  const lastId = report.rounds.at(-1).matchId;
+  a.send('rematch', { matchId: lastId }); b.send('rematch', { matchId: lastId });
+  const replay = (await a.wait(phase('countdown'))).game;
+  assert.equal(replay.round, 1); assert.equal(replay.size, 4); assert.notEqual(replay.duel.id, report.id);
+});
+
+test('planned match: leaving between laps forfeits the whole match without adding a lap', async t => {
+  const { register, request } = await fixture(t);
+  const a = await register('ForfeitPlanA'), b = await register('ForfeitPlanB');
+  a.send('create', { tracks: [{ size: 4, laps: 2 }, { size: 6, laps: 1 }] });
+  const room = (await a.wait(phase('waiting'))).game;
+  b.send('join', { code: room.code }); await b.wait(phase('waiting'));
+  a.send('ready'); b.send('ready'); await a.wait(phase('racing'));
+  b.send('hit', { number: 2 }); await complete(a, 16); await complete(b, 16);
+  const finished = (await a.wait(phase('complete'))).game;
+  assert.equal(finished.duel.report.winner, null);
+  a.send('leave'); await a.wait(m => m.type === 'state' && m.game === null);
+  const ended = (await b.wait(m => m.game?.phase === 'complete' && m.game.duel?.status === 'forfeit' && m.game.saved)).game;
+  assert.equal(ended.duel.report.winner, b.id, 'Match forfeiture overrides an earlier points lead');
+  assert.equal(ended.duel.report.rounds.length, 1);
+  assert.equal(ended.duel.report.players.find(p => p.id === a.id).points, 1);
+  assert.equal((await request('stats', undefined, a.cookie)).body.history.length, 1);
+  assert.equal((await request('duels', undefined, a.cookie)).body.matches[0].status, 'forfeit');
+});
+
+test('planned match: invalid schedules are rejected before room creation', async t => {
+  const { register } = await fixture(t);
+  const a = await register('BadPlan');
+  for (const tracks of [[], null, [{ size: 3, laps: 1 }], [{ size: 6, laps: 11 }], [{ size: 4, laps: 2 }, { size: 4, laps: 3 }]]) {
+    a.messages.length = 0; a.send('create', { tracks });
+    assert.match((await a.wait(m => m.type === 'error')).message, /tory/);
+  }
+});
+
+test('planned match: report rollback and a lost acknowledgement can be retried without duplicate laps or points', async t => {
+  const { register, request, app } = await fixture(t, { countdownMs: 1100 });
+  const a = await register('AtomicA'), b = await register('AtomicB');
+  a.send('create', { tracks: [{ size: 5, laps: 2 }] });
+  const room = (await a.wait(phase('waiting'))).game;
+  b.send('join', { code: room.code }); await b.wait(phase('waiting'));
+  a.send('ready'); b.send('ready'); await a.wait(phase('racing'));
+  const transaction = app.db.transaction;
+  app.db.transaction = callback => transaction(tx => callback({ ...tx, async run(sql, ...args) { if (sql.includes('INSERT INTO duel_events')) throw Error('Simulated report write failure'); return tx.run(sql, ...args); } }));
+  b.send('hit', { number: 2 }); await complete(a, 25); await complete(b, 25);
+  const failed = (await a.wait(m => m.game?.phase === 'complete' && m.game.saved === false)).game;
+  assert.equal(failed.canRematch, false);
+  a.send('rematch', { matchId: failed.matchId });
+  assert.match((await a.wait(m => m.type === 'error')).message, /zapis/);
+  assert.equal((await request('stats', undefined, a.cookie)).body.history.length, 0, 'A failed report write rolls back the lap too');
+  assert.equal((await request('duels', undefined, a.cookie)).body.matches.length, 0);
+  app.db.transaction = async callback => { await transaction(callback); throw Error('Simulated lost commit acknowledgement'); };
+  a.messages.length = 0;
+  a.send('retry-save');
+  await a.wait(m => m.game?.phase === 'complete' && m.game.saved === false);
+  assert.equal((await request('stats', undefined, a.cookie)).body.history.length, 1);
+  assert.equal((await request('duels', undefined, a.cookie)).body.matches.length, 1);
+  app.db.transaction = transaction;
+  a.send('retry-save');
+  const saved = (await a.wait(m => m.game?.phase === 'complete' && m.game.saved)).game;
+  assert.equal(saved.duel.report.rounds.length, 1);
+  assert.equal(saved.duel.report.players.find(p => p.id === a.id).points, 1.5);
+  assert.equal((await request('stats', undefined, a.cookie)).body.history.length, 1);
+  assert.equal((await request('duels', undefined, a.cookie)).body.matches.length, 1);
+  assert.equal((await app.db.get('SELECT COUNT(*) count FROM results WHERE user_id=?', a.id)).count, 1);
+});
+
 test('duel: leaving waiting room is free; disconnect after start forfeits and persists', async t => {
   const { request, register } = await fixture(t);
   const a = await register('LeaveA'), b = await register('LeaveB');

@@ -55,7 +55,9 @@ try {
   await a.waitForFunction(() => document.querySelector('#best-time').textContent !== '—');
   await a.locator('.result-actions [data-action="leave"]').click();
   await a.locator('[data-mode="duel"]').click();
-  await a.locator('[data-size="7"]').click();
+  for (const size of [4, 5, 6]) await a.locator(`#duel-track-${size}`).uncheck();
+  await a.locator('#duel-track-7').check();
+  await a.locator('#duel-laps-7').fill('3');
   await a.locator('[data-action="start"]').click();
   const code = await a.locator('#display-code').textContent();
   await b.locator('[data-mode="duel"]').click();
@@ -119,6 +121,7 @@ try {
   await a.locator('#password').fill('Browser-password-123');
   await a.locator('#auth-submit').click();
   await a.waitForFunction(() => document.querySelector('#total-wins').textContent === '3');
+  await a.locator('[data-mode="solo"]').click();
   await a.locator('[data-size="6"]').click();
   assert.notEqual(await a.locator('#best-time').textContent(), '—');
   assert.deepEqual(errors, []);

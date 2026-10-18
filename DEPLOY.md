@@ -77,11 +77,13 @@ Bez internetu dostępny jest wyłącznie ekran informacyjny, nie trening ani poj
 
 Nowe commity na `race-focus-free-hosting` powinny uruchamiać wdrożenie Render, jeśli włączono Auto-Deploy. Sprawdź status **Live** dla najnowszego commita. Jeśli automatyczne wdrożenie jest wyłączone, wybierz **Manual Deploy → Deploy latest commit**. Następnie odśwież stronę na obu telefonach albo wybierz **Zaktualizuj**, jeżeli aplikacja pokazuje komunikat o nowej wersji.
 
-Po ukończonej rundzie oboje wybieracie „Gotowość do kolejnej rundy” na ekranie wyników. Nie trzeba tworzyć pokoju ani wpisywać kodu ponownie. Każda runda zapisuje się osobno w statystykach. Jeżeli ktoś opuści pokój albo utraci w nim miejsce po rozłączeniu, pozostaje możliwość utworzenia nowego pokoju. Przy komunikacie o utracie połączenia aplikacja automatycznie próbuje je odtworzyć; ukończony mecz nie jest liczony ponownie, a przerwany po starcie nadal podlega regule walkowera.
+Przed utworzeniem meczu wybierz tory i liczbę okrążeń. Po rundzie oboje wybieracie „Gotowość do kolejnej rundy”; gra sama przechodzi do następnego toru według harmonogramu. Każda runda zapisuje się osobno w rankingu, a pełny raport meczu w historii „Mecze 1 vs 1”. Punktacja: 1 / 1,5 / 2 / 2,5 pkt za wygraną odpowiednio na 4×4 / 5×5 / 6×6 / 7×7; remis ukończonych przejazdów dzieli punkty. Po ostatniej rundzie można zagrać rewanż całego meczu. Opuszczenie rozpoczętego meczu, także między okrążeniami, oznacza walkower; ukończony mecz nie jest liczony ponownie.
 
-Jeżeli sieć lub przeglądarka nie pozwala otworzyć WebSocket, aplikacja automatycznie używa zwykłego HTTPS. Nie trzeba zmieniać konfiguracji Render ani Neon. Wersję serwera można sprawdzić pod `/api/version`: wersja z rewanżami w pokoju zwraca `release: "room-rematches-1"`. Pole `commit` pozwala porównać wdrożenie z ostatnim commitem w Render; endpoint nie ujawnia danych kont ani połączenia z bazą.
+Jeżeli sieć lub przeglądarka nie pozwala otworzyć WebSocket, aplikacja automatycznie używa zwykłego HTTPS. Nie trzeba zmieniać konfiguracji Render ani Neon. Wersję serwera można sprawdzić pod `/api/version`: wersja z planowanymi meczami zwraca `release: "planned-duels-1"`. Pole `commit` pozwala porównać wdrożenie z ostatnim commitem w Render; endpoint nie ujawnia danych kont ani połączenia z bazą.
 
 Ranking „Twoje przejazdy” korzysta z dotychczasowych wyników dla dostępnych rozmiarów planszy (4×4–7×7). Nie wymaga migracji danych ani zmiany ustawień Render czy Neon. Po wdrożeniu wybierz tryb i rozmiar planszy w sekcji statystyk; po nowym ukończonym przejeździe gra pokaże jego miejsce automatycznie. Wycofanie planszy 3×3 nie usuwa jej wyników z bazy.
+
+Tabela `duel_events` i indeksy raportów są tworzone automatycznie przy uruchomieniu. Dotychczasowe konta, przejazdy i rankingi pozostają zachowane. Wynik rundy i raport meczu zapisują się w jednej transakcji. Po wymuszonym restarcie częściowy raport pozostaje dostępny ze statusem „Przerwany restartem”; trwający mecz nie jest wznawiany. Zakończone raporty zachowują wynik.
 
 ## Ograniczenia darmowej wersji
 

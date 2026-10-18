@@ -27,7 +27,8 @@ try {
     await page.locator('#auth-submit').click();
     await page.waitForFunction(() => document.querySelector('#setup-footnote').textContent.includes('Gotowy'));
     await page.locator('[data-mode="duel"]').click();
-    await page.locator('[data-size="4"]').click();
+    await page.locator('#duel-track-5').uncheck();
+    await page.locator('#duel-laps-4').fill('1');
   }
   async function play() {
     const code = await a.locator('#display-code').textContent();

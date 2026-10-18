@@ -1,6 +1,7 @@
 import { initPwa } from './pwa.js';
 import { createGameConnection } from './connection.js';
 import { createRanking } from './ranking.js';
+import { initDuels, trackPlan, renderDuelReport, points } from './duels.js';
 
 const $ = selector => document.querySelector(selector);
 const pwa = initPwa();
@@ -10,6 +11,7 @@ let user = null, mode = 'solo', size = 4, game = null, stats = null, authMode = 
 let connectionState = 'idle';
 const dialog = $('#auth-dialog');
 const ranking = createRanking({ api, getUser: () => user });
+const duels = initDuels({ api, getUser: () => user, toast });
 function toast(message) { $('#toast').textContent = message; $('#toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { $('#toast').hidden = true; }, 4500); }
 async function api(path, body) {
   if (!navigator.onLine) throw Error('Brak internetu. Połącz się z siecią i spróbuj ponownie.');
@@ -48,8 +50,8 @@ const connection = createGameConnection({
   },
   onDisconnect(reason) {
     connected = false;
-    if (game && (game.phase !== 'complete' || game.saved === false)) {
-      const interrupted = game.mode === 'duel' && ['countdown', 'racing', 'saving'].includes(game.phase);
+    if (game && (game.phase !== 'complete' || game.saved === false || game.duel?.status === 'active')) {
+      const interrupted = game.mode === 'duel' && (['countdown', 'racing', 'saving'].includes(game.phase) || game.duel?.status === 'active');
       const unsaved = game.saved === false;
       game = null; renderGame();
       if (interrupted && reason !== 'logout') toast('Połączenie przerwało pojedynek. Po ponownym połączeniu sprawdzimy wynik w statystykach.');
@@ -80,29 +82,33 @@ function setup() {
   document.querySelectorAll('[data-size]').forEach(b => { const selected = +b.dataset.size === size; b.classList.toggle('selected', selected); b.setAttribute('aria-pressed', selected); });
   $('#size-description').textContent = `${size ** 2} liczb · ${{ 4: 'standard', 5: 'wyzwanie', 6: 'ekspert', 7: 'mistrz' }[size]}`;
   $('#mode-title').textContent = mode === 'solo' ? 'Ty kontra stoper.' : 'Dwa kokpity. Jeden zwycięzca.';
-  $('#mode-description').textContent = mode === 'solo' ? 'Klikaj liczby od 1 do ostatniej, w rosnącej kolejności. Liczy się szybkość. I precyzja.' : 'Zaproś znajomego kodem pokoju. Jeden kod, wiele rund. Ta sama plansza, wspólny start — wygrywa krótszy czas z karami.';
+  $('#mode-description').textContent = mode === 'solo' ? 'Klikaj liczby od 1 do ostatniej, w rosnącej kolejności. Liczy się szybkość. I precyzja.' : 'Wybierz tory i liczbę okrążeń. Zaproś rywala kodem pokoju. O wyniku meczu decyduje suma punktów ze wszystkich rund.';
   $('#start-button').innerHTML = `${mode === 'solo' ? 'Rozpocznij trening' : 'Utwórz pokój'} <span>→</span>`;
   $('#join-section').hidden = mode !== 'duel';
+  $('#solo-settings').hidden = mode !== 'solo';
+  $('#duel-settings').hidden = mode !== 'duel';
   const preview = Array.from({ length: size ** 2 }, (_, i) => i + 1);
   for (let i = preview.length - 1; i > 0; i--) { const j = (i * 7 + 3) % (i + 1); [preview[i], preview[j]] = [preview[j], preview[i]]; }
   $('#preview-board').className = `preview-board preview-${size}`;
   $('#preview-board').innerHTML = preview.map(n => `<span${n === 1 ? ' class="preview-active"' : ''}>${n}</span>`).join('');
   renderStats();
 }
-async function refreshStats() { if (!user) return; ranking.refresh(); const id = user.id; try { const data = await api('stats'); if (user?.id === id) { stats = data; renderStats(); } } catch (error) { if (user?.id === id) toast(error.message); } }
+async function refreshStats() { if (!user) return; ranking.refresh(); duels.refresh(); const id = user.id; try { const data = await api('stats'); if (user?.id === id) { stats = data; renderStats(); } } catch (error) { if (user?.id === id) toast(error.message); } }
 function renderStats() {
   const record = stats?.records.find(r => r.size === size);
   $('#record-size').textContent = `${size} × ${size}`;
   $('#best-time').textContent = seconds(record?.best);
   $('#record-meta').textContent = record ? `${record.runs} ukończonych treningów · średnio ${seconds(record.average)} s` : 'Twój pierwszy rekord czeka na start.';
   for (const key of ['wins', 'losses', 'draws']) $(`#total-${key}`).textContent = stats?.totals[key] || 0;
-  if (!user) ranking.clear();
+  if (!user) { ranking.clear(); duels.clear(); }
 }
 function shell(content) {
-  return `<div class="game-body"><div class="game-top"><span class="eyebrow">${game.mode === 'solo' ? 'TRENING SOLO' : `POJEDYNEK / ${escape(game.code)} · RUNDA ${game.round}`} · ${game.size} × ${game.size}</span><button data-action="leave">${game.phase === 'complete' ? 'Wróć do centrum' : 'Opuść'} →</button></div>${content}<div id="leave-confirm" class="confirm-leave" hidden><p>${game.mode === 'duel' ? 'Wyjście po rozpoczęciu odliczania oznacza przegraną walkowerem.' : 'Bieżący trening nie zostanie zapisany.'}</p><div><button class="button small secondary" data-action="confirm-leave">Opuść grę</button><button class="button small primary" data-action="cancel-leave">Zostań</button></div></div></div>`;
+  const duel = game.duel;
+  const progress = duel && game.phase !== 'waiting' ? `<div class="duel-progress"><strong>Runda ${game.round} / ${duel.totalRounds}</strong> · Tor ${game.size}×${game.size} · okrążenie ${duel.lap} / ${duel.laps} · ${points(duel.points)} pkt za wygraną<br>${game.players.map(p => `${escape(p.username)}: ${points(duel.standings.find(x => x.id === p.id)?.points ?? 0)} pkt`).join(' · ')}</div>` : '';
+  return `<div class="game-body"><div class="game-top"><span class="eyebrow">${game.mode === 'solo' ? 'TRENING SOLO' : `POJEDYNEK / ${escape(game.code)} · RUNDA ${game.round}`} · ${game.size} × ${game.size}</span><button data-action="leave">${game.phase === 'complete' ? duel?.status === 'active' ? 'Opuść mecz' : 'Wróć do centrum' : 'Opuść'} →</button></div>${progress}${content}<div id="leave-confirm" class="confirm-leave" hidden><p>${game.mode === 'duel' ? 'Opuszczenie rozpoczętego meczu oznacza przegraną walkowerem, także między okrążeniami.' : 'Bieżący trening nie zostanie zapisany.'}</p><div><button class="button small secondary" data-action="confirm-leave">Opuść grę</button><button class="button small primary" data-action="cancel-leave">Zostań</button></div></div></div>`;
 }
 function renderGame() {
-  pwa.setGameActive(game && (game.phase !== 'complete' || game.saved === false));
+  pwa.setGameActive(game && (game.phase !== 'complete' || game.saved === false || game.duel?.status === 'active'));
   document.body.classList.toggle('in-game', !!game);
   $('#setup').hidden = !!game; $('#game').hidden = !game;
   if (!game) { renderKey = ''; $('#game').innerHTML = ''; setup(); return; }
@@ -128,6 +134,27 @@ function renderGame() {
     $('#game').innerHTML = shell(`<div class="result-header"><span class="result-icon">${me.outcome === 'loss' ? '⚑' : '→'}</span><span class="eyebrow">${game.mode === 'solo' ? 'TRENING ZAKOŃCZONY' : 'FLAGA W SZACHOWNICĘ'}</span><h3>${heading}</h3><div class="result-time">${seconds(me.score)} <small>sek.</small></div><p>${explanation}</p></div><table class="result-table"><thead><tr><th>Gracz</th><th>Czas</th><th>Kara</th><th>Wynik</th></tr></thead><tbody>${game.players.map(p => `<tr><td>${escape(p.username)}${p.me ? ' (Ty)' : ''}</td><td>${p.elapsed === null ? '—' : (p.elapsed / 1000).toFixed(2)}</td><td>+${p.errors} s</td><td>${seconds(p.score)} s</td></tr>`).join('')}</tbody></table>${rematch}<div class="result-actions"><button class="button ${game.mode === 'solo' ? 'primary' : 'secondary'}" data-action="again">${game.mode === 'solo' ? 'Jeszcze jeden przejazd' : 'Utwórz nowy pokój'} →</button><button class="button secondary" data-action="leave">Wróć</button></div>`);
   }
   if (game.phase === 'complete' && game.saved === false) $('.result-actions').insertAdjacentHTML('beforebegin', '<div class="notice"><button class="button secondary" data-action="retry-save">Ponów zapis wyniku</button></div>');
+  if (game.duel && game.phase === 'waiting') $('#ready-button').insertAdjacentHTML('beforebegin', trackPlan(game.duel.tracks));
+  if (game.duel && game.phase === 'complete') {
+    const duel = game.duel;
+    const next = duel.next;
+    $('.result-table').insertAdjacentHTML('afterbegin', `<caption>Ostatnie okrążenie · Tor ${game.size}×${game.size}</caption>`);
+    if (duel.report) $('.result-actions').insertAdjacentHTML('beforebegin', `<div id="current-duel-report">${renderDuelReport(duel.report, user.id)}</div>`);
+    if (game.saved) {
+      if (duel.status !== 'active') {
+        const report = duel.report;
+        $('.result-header .eyebrow').textContent = 'MECZ ZAKOŃCZONY';
+        $('.result-header h3').textContent = report.winner === null ? 'Remis w meczu.' : report.winner === me.id ? 'Wygrywasz mecz.' : 'Rywal wygrywa mecz.';
+        $('.result-time').classList.add('duel-final-score');
+        $('.result-time').innerHTML = `${points(report.players.find(p => p.id === me.id).points)} : ${points(report.players.find(p => p.id !== me.id).points)} <small>pkt</small>`;
+        $('.result-header p').textContent = duel.status === 'forfeit' ? 'Mecz zakończony walkowerem. Rozegrane okrążenia i punkty są zapisane w raporcie.' : 'Wszystkie okrążenia rozegrane. Wynik i pełny raport meczu zostały zapisane.';
+      }
+      const text = duel.status === 'active' ? me.ready ? 'Twoja gotowość potwierdzona. Czekamy na rywala…' : `Następnie: tor ${next.size}×${next.size}, okrążenie ${next.lap} / ${next.laps}. Oboje potwierdźcie gotowość.` : 'Mecz zakończony. Możecie rozegrać rewanż z tym samym harmonogramem.';
+      if (game.canRematch) $('#rematch-status').textContent = text;
+      const button = $('[data-action="rematch"]');
+      if (game.canRematch && !me.ready) button.textContent = duel.status === 'active' ? 'Gotowość do kolejnej rundy →' : 'Rewanż — ten sam mecz →';
+    }
+  }
   renderKey = key;
 }
 function tick() {
@@ -158,18 +185,18 @@ document.addEventListener('click', async event => {
       case 'auth': openAuth(); break;
       case 'close-auth': dialog.close(); break;
       case 'switch-auth': authMode = authMode === 'login' ? 'register' : 'login'; updateAuth(); break;
-      case 'start': command(mode === 'solo' ? 'solo' : 'create', { size }); break;
+      case 'start': command(mode === 'solo' ? 'solo' : 'create', mode === 'solo' ? { size } : { tracks: duels.config() }); break;
       case 'ready': command('ready'); break;
       case 'retry-save': command('retry-save'); break;
-      case 'again': command(game.mode === 'solo' ? 'solo' : 'create', { size: game.size }); break;
+      case 'again': if (game.duel?.status === 'active') { toast('Zakończ lub opuść bieżący mecz przed utworzeniem nowego.'); break; } command(game.mode === 'solo' ? 'solo' : 'create', game.duel ? { tracks: game.duel.tracks.map(({ size, laps }) => ({ size, laps })) } : { size: game.size }); break;
       case 'rematch': command('rematch', { matchId: game.matchId }); break;
       case 'home': if (game) toast('Użyj przycisku „Opuść” lub „Wróć do centrum” na planszy.'); else window.scrollTo({ top: 0, behavior: 'smooth' }); break;
       case 'copy-code': try { await navigator.clipboard.writeText(game.code); toast('Kod pokoju skopiowany.'); } catch { toast(`Kod pokoju: ${game.code}`); } break;
-      case 'leave': if (game && ['racing', 'countdown'].includes(game.phase)) $('#leave-confirm').hidden = false; else if (game?.phase === 'complete' && !connected) { game = null; renderGame(); } else command('leave'); break;
+      case 'leave': if (game && (['racing', 'countdown'].includes(game.phase) || (game.duel?.status === 'active' && game.phase !== 'waiting'))) $('#leave-confirm').hidden = false; else if (game?.phase === 'complete' && !connected) { game = null; renderGame(); } else command('leave'); break;
       case 'confirm-leave': command('leave'); break;
       case 'cancel-leave': $('#leave-confirm').hidden = true; break;
       case 'logout':
-        if (game && ['countdown', 'racing'].includes(game.phase)) { toast('Najpierw zakończ lub opuść grę.'); break; }
+        if (game && (['countdown', 'racing'].includes(game.phase) || (game.duel?.status === 'active' && game.phase !== 'waiting'))) { toast('Najpierw zakończ lub opuść mecz.'); break; }
         await api('logout', {}); user = null; stats = null; game = null; connected = false; connection.stop(); $('#connection-banner').hidden = true; updateAccount(); renderGame(); renderStats(); break;
       case 'reconnect':
         user = (await api('me')).user;

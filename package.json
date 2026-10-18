@@ -15,6 +15,7 @@
     "test:reconnect": "node test/reconnect.js",
     "test:http": "node test/http-transport.js",
     "test:ranking": "node test/ranking.js",
+    "test:match": "node test/duel-match.js",
     "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {

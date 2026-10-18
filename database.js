@@ -45,6 +45,12 @@ const schemaSQL = postgres => `
     PRIMARY KEY(match_id,user_id)
   );
   CREATE INDEX IF NOT EXISTS results_user ON results(user_id,match_id);
+  CREATE TABLE IF NOT EXISTS duel_events (
+    id TEXT PRIMARY KEY, player_a INTEGER NOT NULL REFERENCES users(id), player_b INTEGER NOT NULL REFERENCES users(id),
+    created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL, status TEXT NOT NULL, report TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS duel_events_a ON duel_events(player_a,created_at);
+  CREATE INDEX IF NOT EXISTS duel_events_b ON duel_events(player_b,created_at);
 `;
 
 const methods = query => ({

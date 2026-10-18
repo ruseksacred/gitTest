@@ -42,7 +42,8 @@ try {
     await page.waitForFunction(() => document.querySelector('#setup-footnote').textContent.includes('Gotowy'));
     assert.equal(await page.locator('#connection-banner').isVisible(), false);
     await page.locator('[data-mode="duel"]').click();
-    await page.locator('[data-size="4"]').click();
+    await page.locator('#duel-track-5').uncheck();
+    await page.locator('#duel-laps-4').fill('2');
   }
   assert.ok(blockedSockets >= 1 && streams >= 2, 'Both a rejected WS upgrade and a synchronous browser SecurityError must fall back to HTTPS');
   let roomCode;
@@ -99,7 +100,7 @@ try {
   await a.reload();
   await a.waitForFunction(() => document.querySelector('#setup-footnote').textContent.includes('Gotowy'));
   assert.ok(acceptedSockets >= 1);
-  await a.locator('[data-mode="duel"]').click(); await a.locator('[data-size="4"]').click();
+  await a.locator('[data-mode="duel"]').click(); await a.locator('#duel-track-5').uncheck(); await a.locator('#duel-laps-4').fill('1');
   await a.locator('#start-button').click();
   await b.locator('.result-actions [data-action="leave"]').click();
   await playRound(4);
