@@ -3,6 +3,7 @@ import { createGameConnection } from './connection.js';
 import { createRanking } from './ranking.js';
 import { initDuels, trackPlan, renderDuelReport, points } from './duels.js';
 import { renderChampionship, tickChampionship } from './championship.js';
+import { renderTraining, tickTraining } from './training.js';
 
 const $ = selector => document.querySelector(selector);
 const pwa = initPwa();
@@ -83,7 +84,7 @@ function setup() {
   document.querySelectorAll('[data-size]').forEach(b => { const selected = +b.dataset.size === size; b.classList.toggle('selected', selected); b.setAttribute('aria-pressed', selected); });
   $('#size-description').textContent = `${size ** 2} liczb · ${{ 4: 'standard', 5: 'wyzwanie', 6: 'ekspert', 7: 'mistrz' }[size]}`;
   $('#mode-title').textContent = mode === 'solo' ? 'Ty kontra stoper.' : 'Wasze własne mistrzostwa.';
-  $('#mode-description').textContent = mode === 'solo' ? 'Klikaj liczby od 1 do ostatniej, w rosnącej kolejności. Liczy się szybkość. I precyzja.' : 'Jeden tor to wyścig, jedna plansza to okrążenie. Jedziecie płynnie, a punkty z wyścigów tworzą klasyfikację mistrzostw.';
+  $('#mode-description').textContent = mode === 'solo' ? 'Wybierz tor i liczbę okrążeń. Każda plansza to jedno kółko. Śledź czasy i deltę do własnego najlepszego przejazdu.' : 'Jeden tor to wyścig, jedna plansza to okrążenie. Jedziecie płynnie, a punkty z wyścigów tworzą klasyfikację mistrzostw.';
   $('#start-button').innerHTML = `${mode === 'solo' ? 'Rozpocznij trening' : 'Utwórz mistrzostwa'} <span>→</span>`;
   $('#join-section').hidden = mode !== 'duel';
   $('#solo-settings').hidden = mode !== 'solo';
@@ -93,13 +94,24 @@ function setup() {
   $('#preview-board').className = `preview-board preview-${size}`;
   $('#preview-board').innerHTML = preview.map(n => `<span${n === 1 ? ' class="preview-active"' : ''}>${n}</span>`).join('');
   renderStats();
+  updateSoloPlan();
+}
+function updateSoloPlan() {
+  const input = $('#solo-laps'), valid = input.validity.valid && input.value !== '';
+  $('#solo-plan-summary').textContent = valid ? `Tor ${size}×${size} · ${input.value} okr. · limit treningu ${+input.value * 3} min. Kolejne plansze ruszają płynnie, bez potwierdzania gotowości.` : 'Wybierz od 1 do 10 okrążeń.';
+  $('#rules-limit').textContent = mode === 'solo' && valid ? `Limit ${+input.value * 3} min` : '3 min / okr.';
+}
+function soloConfig() {
+  const input = $('#solo-laps');
+  if (!input.reportValidity()) throw Error('Wybierz od 1 do 10 okrążeń.');
+  return { size, laps: +input.value };
 }
 async function refreshStats() { if (!user) return; ranking.refresh(); duels.refresh(); const id = user.id; try { const data = await api('stats'); if (user?.id === id) { stats = data; renderStats(); } } catch (error) { if (user?.id === id) toast(error.message); } }
 function renderStats() {
   const record = stats?.records.find(r => r.size === size);
   $('#record-size').textContent = `${size} × ${size}`;
   $('#best-time').textContent = seconds(record?.best);
-  $('#record-meta').textContent = record ? `${record.runs} ukończonych treningów · średnio ${seconds(record.average)} s` : 'Twój pierwszy rekord czeka na start.';
+  $('#record-meta').textContent = record ? `${record.runs} ukończonych okrążeń · średnio ${seconds(record.average)} s` : 'Twój pierwszy rekord czeka na start.';
   for (const key of ['wins', 'losses', 'draws']) $(`#total-${key}`).textContent = stats?.totals[key] || 0;
   if (!user) { ranking.clear(); duels.clear(); }
 }
@@ -113,6 +125,7 @@ function renderGame() {
   document.body.classList.toggle('in-game', !!game);
   $('#setup').hidden = !!game; $('#game').hidden = !game;
   if (!game) { renderKey = ''; $('#game').innerHTML = ''; setup(); return; }
+  if (game.training) { renderTraining(game, connected); renderKey = ''; return; }
   if (game.championship) { renderChampionship(game, connected, user.id); renderKey = ''; return; }
   const me = game.players.find(p => p.me), opponent = game.players.find(p => !p.me);
   const key = `${game.id}:${game.round}:${game.phase}`;
@@ -163,7 +176,8 @@ function tick() {
   if (game) {
     const now = Date.now() + serverOffset;
     if (game.phase === 'countdown' && $('#countdown-number')) $('#countdown-number').textContent = Math.max(1, Math.ceil((game.startAt - now) / 1000));
-    if (game.championship) tickChampionship(game, now);
+    if (game.training) tickTraining(game, now);
+    else if (game.championship) tickChampionship(game, now);
     else if (game.phase === 'racing' && $('#race-time')) { const me = game.players.find(p => p.me); $('#race-time').textContent = me.score === null ? (Math.max(0, Math.min(now - game.startAt, 180000) + me.errors * 1000) / 1000).toFixed(2) : seconds(me.score); }
   }
   requestAnimationFrame(tick);
@@ -182,16 +196,16 @@ document.addEventListener('click', async event => {
   if (!button || button.disabled) return;
   if (button.dataset.mode) { mode = button.dataset.mode; setup(); return; }
   if (button.dataset.size) { size = +button.dataset.size; setup(); return; }
-  if (button.dataset.number) { command('hit', { number: +button.dataset.number, ...(game?.championship ? { lap: +button.dataset.lap, raceId: button.dataset.raceId } : {}) }); return; }
+  if (button.dataset.number) { command('hit', { number: +button.dataset.number, ...(game?.championship || game?.training ? { lap: +button.dataset.lap, raceId: button.dataset.raceId } : {}) }); return; }
   try {
     switch (button.dataset.action) {
       case 'auth': openAuth(); break;
       case 'close-auth': dialog.close(); break;
       case 'switch-auth': authMode = authMode === 'login' ? 'register' : 'login'; updateAuth(); break;
-      case 'start': command(mode === 'solo' ? 'solo' : 'create', mode === 'solo' ? { size } : { tracks: duels.config(), championship: true }); break;
+      case 'start': command(mode === 'solo' ? 'solo' : 'create', mode === 'solo' ? soloConfig() : { tracks: duels.config(), championship: true }); break;
       case 'ready': command('ready'); break;
       case 'retry-save': command('retry-save'); break;
-      case 'again': if (game.duel?.status === 'active' || game.championship?.status === 'active') { toast('Zakończ lub opuść bieżące mistrzostwa przed utworzeniem nowych.'); break; } command(game.mode === 'solo' ? 'solo' : 'create', game.championship ? { tracks: game.championship.tracks, championship: true } : game.duel ? { tracks: game.duel.tracks.map(({ size, laps }) => ({ size, laps })) } : { size: game.size }); break;
+      case 'again': if (game.duel?.status === 'active' || game.championship?.status === 'active') { toast('Zakończ lub opuść bieżące mistrzostwa przed utworzeniem nowych.'); break; } command(game.mode === 'solo' ? 'solo' : 'create', game.training ? { size: game.size, laps: game.training.laps } : game.championship ? { tracks: game.championship.tracks, championship: true } : game.duel ? { tracks: game.duel.tracks.map(({ size, laps }) => ({ size, laps })) } : { size: game.size }); break;
       case 'rematch': command('rematch', { matchId: game.matchId }); break;
       case 'home': if (game) toast('Użyj przycisku „Opuść” lub „Wróć do centrum” na planszy.'); else window.scrollTo({ top: 0, behavior: 'smooth' }); break;
       case 'copy-code': try { await navigator.clipboard.writeText(game.code); toast('Kod pokoju skopiowany.'); } catch { toast(`Kod pokoju: ${game.code}`); } break;
@@ -211,6 +225,7 @@ document.addEventListener('click', async event => {
   } catch (error) { toast(error.message); }
 });
 $('#join-form').addEventListener('submit', event => { event.preventDefault(); command('join', { code: $('#room-code').value }); });
+$('#solo-laps').addEventListener('input', updateSoloPlan);
 $('#auth-form').addEventListener('submit', async event => {
   event.preventDefault(); $('#auth-submit').disabled = true; $('#auth-error').textContent = '';
   try { const data = await api(authMode, { username: $('#username').value, password: $('#password').value }); user = data.user; $('#password').value = ''; dialog.close(); updateAccount(); connect(); await refreshStats(); toast(authMode === 'register' ? 'Konto gotowe. Wybierz tryb i ruszaj na start.' : 'Witaj z powrotem na torze.'); }

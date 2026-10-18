@@ -60,7 +60,8 @@ export function createRanking({ api, getUser }) {
   $('#ranking-next').addEventListener('click', () => { if (page < pages) { page++; highlight = null; refresh(); } });
   $('#ranking-retry').addEventListener('click', refresh);
   function finished(game) {
-    if (!game?.saved || !game.matchId || game.matchId === lastMatch || game.players.find(p => p.me)?.score == null) return;
+    const score = game?.training ? game.training.driver.laps.at(-1)?.score : game?.players.find(p => p.me)?.score;
+    if (!game?.saved || !game.matchId || game.matchId === lastMatch || score == null) return;
     lastMatch = highlight = game.matchId;
     $('#ranking-mode').value = game.mode;
     $('#ranking-size').value = String(game.size);

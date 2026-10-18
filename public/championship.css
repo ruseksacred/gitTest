@@ -23,3 +23,23 @@
   .champ-timing strong { font-size: 21px; }
   .champ-race-title { flex-wrap: wrap; }
 }
+
+/* Solo keeps the same timing instruments as a championship race. */
+.solo-lap-choice { display: flex; align-items: center; gap: 20px; margin: 22px 0; }
+.solo-lap-choice label { display: grid; gap: 8px; flex: 0 0 110px; font-size: 12px; }
+.solo-lap-choice input { padding: 11px; }
+.solo-lap-choice p { color: var(--muted); font-size: 11px; line-height: 1.7; margin: 0; }
+.solo-lap-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 7px; }
+.solo-lap-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.solo-lap-table { min-width: 610px; }
+.solo-lap-table th, .solo-lap-table td { white-space: nowrap; }
+.solo-best-lap { background: var(--accent-soft); }
+.solo-best-lap th small { color: var(--accent); }
+.solo-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.solo-summary strong { font-size: clamp(16px, 4.5vw, 22px); }
+.solo-result-actions { margin-top: 24px; flex-wrap: wrap; }
+.solo-result-actions .button { min-width: 160px; }
+@media (max-width: 370px) {
+  .solo-lap-choice { align-items: flex-start; gap: 12px; }
+  .solo-lap-choice label { flex-basis: 100px; }
+}

@@ -16,6 +16,7 @@
     "test:http": "node test/http-transport.js",
     "test:ranking": "node test/ranking.js",
     "test:match": "node test/duel-match.js",
+    "test:solo": "node test/solo-training.js",
     "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {

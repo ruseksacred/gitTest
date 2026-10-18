@@ -341,6 +341,152 @@ test('planned match: report rollback and a lost acknowledgement can be retried w
   assert.equal((await app.db.get('SELECT COUNT(*) count FROM results WHERE user_id=?', a.id)).count, 1);
 });
 
+test('solo training: continuous laps, penalties, PB checkpoints and ranked records seed the next training', async t => {
+  const { register, request, app } = await fixture(t, { countdownMs: 1100 });
+  const a = await register('SoloLaps');
+  a.send('solo', { size: 4, laps: 2 });
+  const countdown = (await a.wait(phase('countdown'))).game;
+  assert.deepEqual(countdown.board, []);
+  assert.equal(countdown.training.laps, 2);
+  assert.equal(countdown.deadline - countdown.startAt, 10000);
+  const g = (await a.wait(phase('racing'))).game;
+  assert.equal(g.training.driver.best, null);
+  assert.equal(g.board.length, 16);
+  assert.ok(!JSON.stringify(g).includes('splits'), 'Never expose PB splits or future boards');
+  const hit = (lap, number, raceId = g.raceId) => a.send('hit', { lap, number, raceId });
+  const get = app.db.get; let reads = 0;
+  app.db.get = async (...args) => { reads++; return get(...args); };
+  hit(1, 2);
+  for (let n = 1; n <= 16; n++) hit(1, n);
+  const next = (await a.wait(m => m.game?.training?.driver.lap === 2)).game;
+  assert.equal(next.phase, 'racing'); assert.equal(next.training.driver.next, 1);
+  assert.equal(next.training.driver.errors, 0); assert.equal(next.training.driver.totalErrors, 1);
+  const first = next.training.driver.laps[0];
+  assert.equal(first.score, Math.round((first.elapsed + 1000) / 10));
+  hit(1, 16); hit(2, 1, 'old-race'); hit(2, 1);
+  const checkpoint = (await a.wait(m => m.game?.training?.driver.lap === 2 && m.game.training.driver.next === 2)).game.training.driver;
+  assert.equal(checkpoint.errors, 0, 'Late lap and race packets must be ignored');
+  assert.equal(checkpoint.delta.checkpoint, 1);
+  hit(2, 9);
+  const penalized = (await a.wait(m => m.game?.training?.driver.lap === 2 && m.game.training.driver.errors === 1)).game.training.driver;
+  assert.equal(penalized.delta.value, checkpoint.delta.value + 100, 'A wrong choice changes the delta immediately');
+  assert.equal(reads, 0, 'Timed hits and lap changes cannot query the database'); app.db.get = get;
+  for (let n = 2; n <= 16; n++) hit(2, n);
+  const finished = (await a.wait(m => m.game?.phase === 'complete' && m.game.saved)).game;
+  const laps = finished.training.driver.laps;
+  assert.equal(laps.length, 2); assert.equal(finished.training.summary.errors, 2);
+  assert.equal(finished.training.summary.total, laps[0].score + laps[1].score);
+  assert.equal(finished.players[0].score, finished.training.summary.total);
+  const records = (await request('runs?mode=solo&size=4', undefined, a.cookie)).body;
+  assert.equal(records.total, 2); assert.deepEqual(records.rows.map(r => r.score), laps.map(l => l.score).sort((a, b) => a - b));
+  assert.equal((await app.db.get('SELECT COUNT(*) count FROM lap_telemetry')).count, 2);
+  a.messages.length = 0; a.send('solo', { size: 4, laps: 1 });
+  const replay = (await a.wait(phase('racing'))).game;
+  assert.equal(replay.training.driver.best.historical, true);
+  assert.equal(replay.training.driver.best.score, Math.min(...laps.map(l => l.score)));
+  a.send('hit', { raceId: replay.raceId, lap: 1, number: 1 });
+  assert.notEqual((await a.wait(m => m.game?.training?.driver.next === 2)).game.training.driver.delta, null);
+});
+
+test('solo training: invalid lap counts and track sizes do not start a game', async t => {
+  const { register } = await fixture(t);
+  const a = await register('SoloConfig');
+  for (const laps of [0, -1, 11, 1.5, '2', null, {}]) {
+    a.messages.length = 0; a.send('solo', { size: 4, laps });
+    assert.match((await a.wait(m => m.type === 'error')).message, /1 do 10/);
+    assert.ok(!a.messages.some(m => m.game));
+  }
+  a.messages.length = 0; a.send('solo', { size: 3, laps: 2 });
+  assert.match((await a.wait(m => m.type === 'error')).message, /rozmiar/);
+});
+
+test('solo training: partial completed laps survive timeout, while unfinished laps are not ranked', async t => {
+  const { register, request } = await fixture(t, { roundMs: 120 });
+  const a = await register('SoloTimeout');
+  a.send('solo', { size: 4, laps: 2 });
+  const g = (await a.wait(phase('racing'))).game;
+  for (let number = 1; number <= 16; number++) a.send('hit', { raceId: g.raceId, lap: 1, number });
+  await a.wait(m => m.game?.training?.driver.lap === 2);
+  const ended = (await a.wait(m => m.game?.phase === 'complete' && m.game.saved)).game;
+  assert.equal(ended.reason, 'timeout'); assert.equal(ended.training.summary.completed, 1);
+  assert.equal(ended.players[0].score, null);
+  assert.equal((await request('runs?mode=solo&size=4', undefined, a.cookie)).body.total, 1);
+});
+
+for (const disconnected of [false, true]) test(`solo training: ${disconnected ? 'disconnect' : 'leaving'} keeps completed laps without inventing a partial result`, async t => {
+  const { register, request, connectSocket } = await fixture(t);
+  const a = await register('SoloExit');
+  a.send('solo', { size: 4, laps: 2 });
+  const g = (await a.wait(phase('racing'))).game;
+  for (let number = 1; number <= 16; number++) a.send('hit', { raceId: g.raceId, lap: 1, number });
+  await a.wait(m => m.game?.training?.driver.lap === 2);
+  if (disconnected) { a.ws.close(); await new Promise(resolve => a.ws.once('close', resolve)); }
+  else { a.send('leave'); await a.wait(m => m.type === 'state' && m.game === null); }
+  // A new connection is released only after the old game has finished saving.
+  const b = disconnected ? await connectSocket(a, a.cookie) : a;
+  const records = (await request('runs?mode=solo&size=4', undefined, b.cookie)).body;
+  assert.equal(records.total, 1); assert.equal(records.rows[0].reason, 'finished');
+});
+
+test('solo training: save rollback and lost acknowledgement can be retried without duplicating laps', async t => {
+  const { register, request, app } = await fixture(t);
+  const a = await register('SoloRetry');
+  a.send('solo', { size: 4, laps: 2 });
+  const g = (await a.wait(phase('racing'))).game;
+  const transaction = app.db.transaction;
+  app.db.transaction = callback => transaction(tx => callback({ ...tx, async run(sql, ...args) { if (sql.includes('INSERT INTO lap_telemetry')) throw Error('Simulated telemetry outage'); return tx.run(sql, ...args); } }));
+  for (const lap of [1, 2]) {
+    for (let number = 1; number <= 16; number++) a.send('hit', { raceId: g.raceId, lap, number });
+    if (lap === 1) await a.wait(m => m.game?.training?.driver.lap === 2);
+  }
+  await a.wait(m => m.game?.phase === 'complete' && m.game.saved === false);
+  assert.equal((await request('runs?mode=solo&size=4', undefined, a.cookie)).body.total, 0);
+  app.db.transaction = async callback => { await transaction(callback); throw Error('Lost training acknowledgement'); };
+  a.messages.length = 0; a.send('retry-save'); await a.wait(m => m.game?.phase === 'complete' && m.game.saved === false);
+  app.db.transaction = transaction; a.send('retry-save');
+  const saved = (await a.wait(m => m.game?.phase === 'complete' && m.game.saved)).game;
+  assert.equal(saved.training.summary.completed, 2);
+  assert.equal((await request('runs?mode=solo&size=4', undefined, a.cookie)).body.total, 2);
+  assert.equal((await app.db.get('SELECT COUNT(*) count FROM lap_telemetry')).count, 2);
+});
+
+test('solo training: reconnect during a pending partial save refreshes stats after commit', async t => {
+  const { register, request, connectSocket, app } = await fixture(t);
+  const a = await register('SoloPending');
+  a.send('solo', { size: 4, laps: 2 });
+  const g = (await a.wait(phase('racing'))).game;
+  for (let number = 1; number <= 16; number++) a.send('hit', { raceId: g.raceId, lap: 1, number });
+  await a.wait(m => m.game?.training?.driver.lap === 2);
+  const transaction = app.db.transaction;
+  let release, started;
+  const gate = new Promise(resolve => { release = resolve; });
+  const saving = new Promise(resolve => { started = resolve; });
+  app.db.transaction = async callback => { started(); await gate; return transaction(callback); };
+  a.ws.close(); await saving;
+  app.db.transaction = transaction;
+  const b = await connectSocket(a, a.cookie);
+  assert.equal((await request('runs?mode=solo&size=4', undefined, a.cookie)).body.total, 0);
+  release(); await b.wait(m => m.type === 'refresh-stats');
+  assert.equal((await request('runs?mode=solo&size=4', undefined, b.cookie)).body.total, 1);
+});
+
+test('solo training: cancelling while loading PB cannot start a detached countdown', async t => {
+  const { register, app } = await fixture(t);
+  const a = await register('SoloCancel');
+  const get = app.db.get;
+  let release, reached;
+  const blocked = new Promise(resolve => { release = resolve; });
+  const queried = new Promise(resolve => { reached = resolve; });
+  app.db.get = async (sql, ...args) => { if (sql.includes('JOIN lap_telemetry')) { reached(); await blocked; } return get(sql, ...args); };
+  a.send('solo', { size: 4, laps: 2 }); await queried;
+  a.send('leave'); await a.wait(m => m.type === 'state' && m.game === null);
+  release(); app.db.get = get;
+  a.messages.length = 0; a.send('solo', { size: 5, laps: 1 });
+  const racing = (await a.wait(phase('racing'))).game;
+  assert.equal(racing.size, 5); assert.equal(racing.board.length, 25);
+  assert.ok(!a.messages.some(m => m.game?.size === 4));
+});
+
 test('championship: independent laps, same per-lap boards, exact gaps, race points and persisted telemetry', async t => {
   const { register, request, app } = await fixture(t, { countdownMs: 1100, roundMs: 10000 });
   const a = await register('ChampA'), b = await register('ChampB'), outside = await register('ChampC');
