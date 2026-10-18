@@ -10,6 +10,8 @@ import { createHttpChannel } from './http-channel.js';
 import { parseRunFilters, rankedRuns } from './runs.js';
 import { parseTracks, createDuel, roundReport, duelReport, saveDuel } from './duels.js';
 import { createChampionship, prepareRace, raceHit, raceState, raceResult, championshipReport } from './championship.js';
+import { prepareLaps, lapHit } from './lap-timing.js';
+import { trainingState } from './training.js';
 
 const scrypt = promisify(scryptCallback);
 const root = dirname(fileURLToPath(import.meta.url));
@@ -40,7 +42,7 @@ export async function createApp({ database = process.env.DATABASE_URL || process
   // Render health probes must not keep a free Neon database awake all day.
   // /api/ready is the explicit database readiness check used during deployment.
   app.get('/api/health', (req, res) => res.json({ ok: true }));
-  app.get('/api/version', (req, res) => res.json({ release: 'racing-red-1', commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'local', transports: ['websocket', 'https'] }));
+  app.get('/api/version', (req, res) => res.json({ release: 'solo-laps-1', commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'local', transports: ['websocket', 'https'] }));
   app.get('/api/ready', async (req, res) => { await db.get('SELECT 1'); res.json({ ok: true, database: db.dialect }); });
   app.use('/api', (req, res, next) => {
     if (req.method !== 'GET' && (req.headers.origin && req.headers.origin !== expectedOrigin(req))) return res.status(403).json({ error: 'Niedozwolone pochodzenie żądania.' });
@@ -164,16 +166,19 @@ export async function createApp({ database = process.env.DATABASE_URL || process
     } catch { socket.write('HTTP/1.1 503 Service Unavailable\r\n\r\n'); socket.destroy(); }
   });
   const send = (client, data) => { if (client.ws.readyState === WebSocket.OPEN) client.ws.send(JSON.stringify(data)); };
-  const roomPlayersPresent = game => game.players.length === 2 && game.players.every(p => {
+  const playersPresent = game => game.players.length > 0 && game.players.every(p => {
     const c = clients.get(p.id);
     return c?.game === game && !c.revoked && c.ws.readyState === WebSocket.OPEN;
   });
+  const roomPlayersPresent = game => game.players.length === 2 && playersPresent(game);
   function state(game, id) {
     const duel = game.duel;
     const stage = duel?.schedule[game.round - 1];
     const me = game.players.find(p => p.id === id);
-    return { type: 'state', game: { id: game.id, round: game.round, raceId: game.saveKey, matchId: game.matchId ?? null, mode: game.mode, code: game.mode === 'duel' ? game.id : null, canRematch: game.mode === 'duel' && game.phase === 'complete' && game.saved === true && roomPlayersPresent(game), size: game.size, phase: game.phase, startAt: game.startAt, deadline: game.championship ? game.deadline ?? null : game.startAt ? game.startAt + roundMs : null, serverNow: Date.now(), board: game.championship ? game.phase === 'racing' && !me.finished ? game.boards[me.lap - 1] : [] : ['racing', 'saving', 'complete'].includes(game.phase) ? game.board : [], reason: game.reason, saved: game.saved ?? null,
+    const timedLaps = game.championship || game.training;
+    return { type: 'state', game: { id: game.id, round: game.round, raceId: game.saveKey, matchId: game.matchId ?? null, mode: game.mode, code: game.mode === 'duel' ? game.id : null, canRematch: game.mode === 'duel' && game.phase === 'complete' && game.saved === true && roomPlayersPresent(game), size: game.size, phase: game.phase, startAt: game.startAt, deadline: timedLaps ? game.deadline ?? null : game.startAt ? game.startAt + roundMs : null, serverNow: Date.now(), board: timedLaps ? game.phase === 'racing' && !me.finished ? game.boards[me.lap - 1] : [] : ['racing', 'saving', 'complete'].includes(game.phase) ? game.board : [], reason: game.reason, saved: game.saved ?? null,
       championship: game.championship ? raceState(game, id) : null,
+      training: game.training ? trainingState(game, id) : null,
       duel: duel ? { id: duel.id, tracks: duel.tracks, totalRounds: duel.schedule.length, lap: stage.lap, laps: stage.laps, points: stage.points, status: duel.status, next: duel.status === 'active' ? duel.schedule[game.round] ?? null : null, standings: duel.report?.players ?? [], report: game.phase === 'complete' ? duel.report : null } : null,
       players: game.players.map(p => ({ id: p.id, username: p.username, ready: p.ready, next: p.next, errors: p.errors, elapsed: p.elapsed, score: p.score, outcome: p.outcome, me: p.id === id })) } };
   }
@@ -203,6 +208,7 @@ export async function createApp({ database = process.env.DATABASE_URL || process
   }
   function persistResult(game) {
     if (game.championship) return persistChampionshipRace(game);
+    if (game.training) return persistTraining(game);
     game.phase = 'saving'; broadcast(game);
     game.finishPromise = (async () => {
       try {
@@ -228,6 +234,7 @@ export async function createApp({ database = process.env.DATABASE_URL || process
   }
   function start(game) {
     if (game.championship) return startChampionshipRace(game);
+    if (game.training) return startTraining(game);
     game.phase = 'countdown'; game.startAt = Date.now() + countdownMs;
     game.board = Array.from({ length: game.size ** 2 }, (_, i) => i + 1);
     for (let i = game.board.length - 1; i > 0; i--) { const j = randomInt(i + 1); [game.board[i], game.board[j]] = [game.board[j], game.board[i]]; }
@@ -241,17 +248,64 @@ export async function createApp({ database = process.env.DATABASE_URL || process
     if (remaining > 0) { game.startTimer = setTimeout(() => greenLight(game), remaining); return; }
     game.phase = 'racing'; broadcast(game);
   }
+  async function lapReferences(game) {
+    return Promise.all(game.players.map(async p => {
+      const row = await db.get(`SELECT r.score,t.splits FROM results r JOIN matches m ON m.id=r.match_id JOIN lap_telemetry t ON t.match_id=r.match_id AND t.user_id=r.user_id WHERE r.user_id=? AND m.size=? AND r.score IS NOT NULL ORDER BY r.score ASC,m.id ASC LIMIT 1`, p.id, game.size);
+      if (!row) return { id: p.id, best: null };
+      const splits = JSON.parse(row.splits);
+      return { id: p.id, best: Array.isArray(splits) && splits.length === game.size ** 2 && splits.every(n => Number.isInteger(n) && n >= 0) ? { score: row.score, splits, historical: true } : null };
+    }));
+  }
+  async function startTraining(game) {
+    game.phase = 'preparing'; broadcast(game);
+    let references;
+    try { references = await lapReferences(game); }
+    catch {
+      if (game.phase === 'preparing') {
+        game.phase = 'cancelled'; games.delete(game.id);
+        const c = clients.get(game.players[0].id);
+        if (c?.game === game) { c.game = null; send(c, { type: 'state', game: null }); }
+      }
+      throw Error('Nie udało się przygotować pomiaru. Spróbuj ponownie rozpocząć trening.');
+    }
+    if (game.phase !== 'preparing' || !playersPresent(game)) return;
+    prepareLaps(game, { size: game.size, laps: game.training.laps }, Date.now() + countdownMs, references);
+    game.phase = 'countdown'; game.deadline = game.startAt + roundMs * game.training.laps;
+    game.startTimer = setTimeout(() => greenLight(game), countdownMs);
+    game.endTimer = setTimeout(() => finish(game, 'timeout'), countdownMs + roundMs * game.training.laps);
+    broadcast(game);
+  }
+  function persistTraining(game) {
+    game.phase = 'saving'; broadcast(game);
+    game.finishPromise = (async () => {
+      try {
+        const p = game.players[0], laps = p.laps ?? [];
+        const ids = await db.transaction(async tx => {
+          const ids = [];
+          for (const lap of laps) {
+            const { id } = await tx.get('INSERT INTO matches(mode,size,finished_at,reason,save_key) VALUES (?,?,?,?,?) ON CONFLICT(save_key) DO UPDATE SET save_key=excluded.save_key RETURNING id', 'solo', game.size, lap.finishedAt, 'finished', `${game.saveKey}:lap:${lap.index}`);
+            await tx.run('INSERT INTO results VALUES (?,?,?,?,?,?) ON CONFLICT(match_id,user_id) DO NOTHING', id, p.id, lap.elapsed, lap.errors, lap.score, 'solo');
+            await tx.run('INSERT INTO lap_telemetry VALUES (?,?,?) ON CONFLICT(match_id,user_id) DO NOTHING', id, p.id, JSON.stringify(lap.splits));
+            ids.push(id);
+          }
+          return ids;
+        });
+        for (const [i, lap] of laps.entries()) lap.matchId = ids[i];
+        game.matchId = ids.at(-1) ?? null; game.saved = true;
+      } catch { game.saved = false; console.error('Nie udało się zapisać okrążeń treningu. Można ponowić zapis.'); }
+      game.phase = 'complete'; games.delete(game.id); broadcast(game);
+      // A replacement transport may already have fetched stats before the
+      // disconnected training's transaction committed.
+      const current = clients.get(game.players[0].id);
+      if (game.saved && current && current.game !== game) send(current, { type: 'refresh-stats' });
+    })();
+    return game.finishPromise;
+  }
   async function startChampionshipRace(game) {
     game.phase = 'preparing'; broadcast(game);
     let references;
-    try {
-      references = await Promise.all(game.players.map(async p => {
-        const row = await db.get(`SELECT r.score,t.splits FROM results r JOIN matches m ON m.id=r.match_id JOIN lap_telemetry t ON t.match_id=r.match_id AND t.user_id=r.user_id WHERE r.user_id=? AND m.size=? AND r.score IS NOT NULL ORDER BY r.score ASC,m.id ASC LIMIT 1`, p.id, game.size);
-        if (!row) return { id: p.id, best: null };
-        const splits = JSON.parse(row.splits);
-        return { id: p.id, best: Array.isArray(splits) && splits.length === game.size ** 2 && splits.every(n => Number.isInteger(n) && n >= 0) ? { score: row.score, splits, historical: true } : null };
-      }));
-    } catch {
+    try { references = await lapReferences(game); }
+    catch {
       if (game.phase === 'preparing') { game.phase = 'waiting'; for (const p of game.players) p.ready = false; broadcast(game); }
       throw Error('Nie udało się przygotować pomiaru wyścigu. Spróbuj ponownie potwierdzić gotowość.');
     }
@@ -304,7 +358,10 @@ export async function createApp({ database = process.env.DATABASE_URL || process
   async function leave(c) {
     const g = c.game;
     if (!g) return;
-    if (['waiting', 'preparing'].includes(g.phase) && g.championship?.races.length) {
+    if (g.training && ['preparing', 'countdown', 'racing'].includes(g.phase)) {
+      if (g.players[0].laps?.length) await finish(g, 'abandoned');
+      else { g.phase = 'cancelled'; clearTimeout(g.startTimer); clearTimeout(g.endTimer); games.delete(g.id); }
+    } else if (['waiting', 'preparing'].includes(g.phase) && g.championship?.races.length) {
       g.championship.status = 'forfeit'; g.championship.forfeiter = c.user.id; g.championship.finishedAt = Date.now();
       await persistChampionshipRace(g);
     } else if (g.phase === 'waiting' || g.phase === 'preparing') {
@@ -354,6 +411,7 @@ export async function createApp({ database = process.env.DATABASE_URL || process
         c.game = room; room.players.push(player(c)); broadcast(room); return;
       }
       const tracks = data.action === 'create' && data.tracks !== undefined ? parseTracks(data.tracks) : null;
+      if (data.action === 'solo' && data.laps !== undefined && (!Number.isInteger(data.laps) || data.laps < 1 || data.laps > 10)) throw Error('Wybierz od 1 do 10 okrążeń treningu.');
       if (data.championship !== undefined && typeof data.championship !== 'boolean') throw Error('Nieprawidłowa konfiguracja mistrzostw.');
       if (data.championship === true && !tracks) throw Error('Wybierz tory i liczbę okrążeń mistrzostw.');
       if (data.action === 'create' && data.tracks !== undefined && !tracks) throw Error('Wybierz 1–4 różne tory (4×4–7×7), po 1–10 okrążeń na każdym.');
@@ -361,9 +419,9 @@ export async function createApp({ database = process.env.DATABASE_URL || process
       if (g) await leave(c);
       if (c.game || c.revoked || c.ws.readyState !== WebSocket.OPEN) return;
       let id; do { id = randomBytes(4).toString('hex').slice(0, 6).toUpperCase(); } while (games.has(id));
-      const game = { id, round: 1, saveKey: randomUUID(), mode: data.action === 'solo' ? 'solo' : 'duel', size: tracks ? tracks[0].size : data.size, championship: data.championship ? createChampionship(tracks) : null, duel: tracks && !data.championship ? createDuel(tracks) : null, phase: 'waiting', players: [player(c)], board: [] };
+      const game = { id, round: 1, saveKey: randomUUID(), mode: data.action === 'solo' ? 'solo' : 'duel', size: tracks ? tracks[0].size : data.size, training: data.action === 'solo' && data.laps !== undefined ? { laps: data.laps } : null, championship: data.championship ? createChampionship(tracks) : null, duel: tracks && !data.championship ? createDuel(tracks) : null, phase: 'waiting', players: [player(c)], board: [] };
       c.game = game; games.set(id, game);
-      if (game.mode === 'solo') start(game); else { rooms.set(id, game); broadcast(game); }
+      if (game.mode === 'solo') await start(game); else { rooms.set(id, game); broadcast(game); }
     } else if (data.action === 'leave') { await leave(c); send(c, { type: 'state', game: null }); }
     else if (data.action === 'retry-save') {
       if (g?.phase === 'complete' && g.saved === false) await persistResult(g);
@@ -399,9 +457,10 @@ export async function createApp({ database = process.env.DATABASE_URL || process
     } else if (data.action === 'hit') {
       if (!g || g.phase !== 'racing' || Date.now() < g.startAt) return;
       const p = g.players.find(p => p.id === c.user.id);
-      if (g.championship) {
+      if (g.championship || g.training) {
         if (Date.now() >= g.deadline) { finish(g, 'timeout'); return; }
-        raceHit(g, p, data, Date.now());
+        if (g.training) lapHit(g, p, data, Date.now(), g.training.laps);
+        else raceHit(g, p, data, Date.now());
         if (g.players.every(p => p.finished)) finish(g); else broadcast(g);
         return;
       }
