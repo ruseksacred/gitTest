@@ -79,7 +79,7 @@ Nowe commity na `race-focus-free-hosting` powinny uruchamiać wdrożenie Render,
 
 Wybierz tory i liczbę okrążeń mistrzostw. Na jednym torze jedziecie płynnie, niezależnie od postępu rywala. Gotowość obu osób jest wymagana przed kolejnym wyścigiem. Wynik wyścigu to suma czasów kółek z karami, a punkty przyznaje się raz po całym wyścigu: przy dwóch graczach 2 pkt za pierwsze i 1 pkt za drugie miejsce; remis daje po 1,5, DNF 0. Raport mistrzostw i kółka są dostępne w historii. Opuszczenie rozpoczętych mistrzostw oznacza walkower.
 
-Jeżeli sieć lub przeglądarka nie pozwala otworzyć WebSocket, aplikacja automatycznie używa zwykłego HTTPS. Nie trzeba zmieniać konfiguracji Render ani Neon. Wersję serwera można sprawdzić pod `/api/version`: wersja z mistrzostwami zwraca `release: "championship-racing-1"`. Pole `commit` pozwala porównać wdrożenie z ostatnim commitem w Render; endpoint nie ujawnia danych kont ani połączenia z bazą.
+Jeżeli sieć lub przeglądarka nie pozwala otworzyć WebSocket, aplikacja automatycznie używa zwykłego HTTPS. Nie trzeba zmieniać konfiguracji Render ani Neon. Wersję serwera można sprawdzić pod `/api/version`: wersja z czerwoną stylistyką zwraca `release: "racing-red-1"`. Pole `commit` pozwala porównać wdrożenie z ostatnim commitem w Render; endpoint nie ujawnia danych kont ani połączenia z bazą.
 
 Ranking „Twoje przejazdy” korzysta z dotychczasowych wyników dla dostępnych rozmiarów planszy (4×4–7×7). Nie wymaga migracji danych ani zmiany ustawień Render czy Neon. Po wdrożeniu wybierz tryb i rozmiar planszy w sekcji statystyk; po nowym ukończonym przejeździe gra pokaże jego miejsce automatycznie. Wycofanie planszy 3×3 nie usuwa jej wyników z bazy.
 

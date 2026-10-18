@@ -40,7 +40,7 @@ export async function createApp({ database = process.env.DATABASE_URL || process
   // Render health probes must not keep a free Neon database awake all day.
   // /api/ready is the explicit database readiness check used during deployment.
   app.get('/api/health', (req, res) => res.json({ ok: true }));
-  app.get('/api/version', (req, res) => res.json({ release: 'championship-racing-1', commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'local', transports: ['websocket', 'https'] }));
+  app.get('/api/version', (req, res) => res.json({ release: 'racing-red-1', commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'local', transports: ['websocket', 'https'] }));
   app.get('/api/ready', async (req, res) => { await db.get('SELECT 1'); res.json({ ok: true, database: db.dialect }); });
   app.use('/api', (req, res, next) => {
     if (req.method !== 'GET' && (req.headers.origin && req.headers.origin !== expectedOrigin(req))) return res.status(403).json({ error: 'Niedozwolone pochodzenie żądania.' });

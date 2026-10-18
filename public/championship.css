@@ -1,16 +1,16 @@
 .champ-race-title { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 20px 0; }
 .champ-race-title h3 { margin: 0; font-size: 22px; }
-.champ-race-title span { color: var(--lime); font-size: 13px; }
+.champ-race-title span { color: var(--accent); font-size: 13px; }
 .champ-timing { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin-bottom: 20px; }
-.champ-timing > div { background: #111512; border: 1px solid var(--line); border-radius: 7px; padding: 13px; min-width: 0; }
+.champ-timing > div { background: var(--surface); border: 1px solid var(--line); border-radius: 7px; padding: 13px; min-width: 0; }
 .champ-timing small { display: block; color: var(--muted); font-size: 8px; letter-spacing: .6px; line-height: 1.6; }
 .champ-timing strong { display: block; font-family: var(--mono); font-size: 24px; margin-top: 7px; font-weight: 500; }
 .champ-timing span { display: block; color: var(--muted); font-size: 10px; line-height: 1.6; margin-top: 6px; }
-.timing-ahead { color: var(--lime); }
-.timing-behind { color: #ff9c87; }
+.timing-ahead { color: var(--success); }
+.timing-behind { color: var(--danger); }
 .champ-next { color: var(--muted); font-size: 11px; display: flex; align-items: center; gap: 12px; margin: 16px 0; }
-.champ-next strong { font-family: var(--mono); color: var(--lime); font-size: 32px; }
-.champ-finished { padding: 25px 18px; border: 1px solid var(--lime); border-radius: 8px; color: var(--lime); line-height: 1.7; }
+.champ-next strong { font-family: var(--mono); color: var(--accent); font-size: 32px; }
+.champ-finished { padding: 25px 18px; border: 1px solid var(--accent); border-radius: 8px; color: var(--accent); line-height: 1.7; }
 .champ-finished p { font-size: 13px; color: var(--muted); }
 .live-laps-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 7px; }
 .live-lap-table { border-collapse: collapse; width: 100%; min-width: 380px; font-size: 12px; font-variant-numeric: tabular-nums; text-align: left; }
