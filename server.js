@@ -9,6 +9,7 @@ import { openDatabase } from './database.js';
 import { createHttpChannel } from './http-channel.js';
 import { parseRunFilters, rankedRuns } from './runs.js';
 import { parseTracks, createDuel, roundReport, duelReport, saveDuel } from './duels.js';
+import { createChampionship, prepareRace, raceHit, raceState, raceResult, championshipReport } from './championship.js';
 
 const scrypt = promisify(scryptCallback);
 const root = dirname(fileURLToPath(import.meta.url));
@@ -39,7 +40,7 @@ export async function createApp({ database = process.env.DATABASE_URL || process
   // Render health probes must not keep a free Neon database awake all day.
   // /api/ready is the explicit database readiness check used during deployment.
   app.get('/api/health', (req, res) => res.json({ ok: true }));
-  app.get('/api/version', (req, res) => res.json({ release: 'planned-duels-1', commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'local', transports: ['websocket', 'https'] }));
+  app.get('/api/version', (req, res) => res.json({ release: 'championship-racing-1', commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'local', transports: ['websocket', 'https'] }));
   app.get('/api/ready', async (req, res) => { await db.get('SELECT 1'); res.json({ ok: true, database: db.dialect }); });
   app.use('/api', (req, res, next) => {
     if (req.method !== 'GET' && (req.headers.origin && req.headers.origin !== expectedOrigin(req))) return res.status(403).json({ error: 'Niedozwolone pochodzenie żądania.' });
@@ -133,7 +134,7 @@ export async function createApp({ database = process.env.DATABASE_URL || process
     const rows = await db.all('SELECT id,status,report FROM duel_events WHERE player_a=? OR player_b=? ORDER BY created_at DESC,id DESC LIMIT 20', req.user.id, req.user.id);
     res.json({ matches: rows.map(row => {
       const report = JSON.parse(row.report);
-      return { id: row.id, status: row.status, createdAt: report.createdAt, winner: row.status === 'interrupted' ? null : report.winner, players: report.players, tracks: report.tracks.map(({ size, laps, points }) => ({ size, laps, points })), completedRounds: report.completedRounds, totalRounds: report.totalRounds };
+      return { id: row.id, format: report.format ?? 'match-v1', status: row.status, createdAt: report.createdAt, winner: row.status === 'interrupted' ? null : report.winner, players: report.players, tracks: report.tracks.map(({ size, laps, points }) => ({ size, laps, points })), completedRounds: report.completedRounds, totalRounds: report.totalRounds };
     }) });
   });
   app.get('/api/duels/:id', requireUser, async (req, res) => {
@@ -170,7 +171,9 @@ export async function createApp({ database = process.env.DATABASE_URL || process
   function state(game, id) {
     const duel = game.duel;
     const stage = duel?.schedule[game.round - 1];
-    return { type: 'state', game: { id: game.id, round: game.round, matchId: game.matchId ?? null, mode: game.mode, code: game.mode === 'duel' ? game.id : null, canRematch: game.mode === 'duel' && game.phase === 'complete' && game.saved === true && roomPlayersPresent(game), size: game.size, phase: game.phase, startAt: game.startAt, deadline: game.startAt ? game.startAt + roundMs : null, serverNow: Date.now(), board: ['racing', 'saving', 'complete'].includes(game.phase) ? game.board : [], reason: game.reason, saved: game.saved ?? null,
+    const me = game.players.find(p => p.id === id);
+    return { type: 'state', game: { id: game.id, round: game.round, raceId: game.saveKey, matchId: game.matchId ?? null, mode: game.mode, code: game.mode === 'duel' ? game.id : null, canRematch: game.mode === 'duel' && game.phase === 'complete' && game.saved === true && roomPlayersPresent(game), size: game.size, phase: game.phase, startAt: game.startAt, deadline: game.championship ? game.deadline ?? null : game.startAt ? game.startAt + roundMs : null, serverNow: Date.now(), board: game.championship ? game.phase === 'racing' && !me.finished ? game.boards[me.lap - 1] : [] : ['racing', 'saving', 'complete'].includes(game.phase) ? game.board : [], reason: game.reason, saved: game.saved ?? null,
+      championship: game.championship ? raceState(game, id) : null,
       duel: duel ? { id: duel.id, tracks: duel.tracks, totalRounds: duel.schedule.length, lap: stage.lap, laps: stage.laps, points: stage.points, status: duel.status, next: duel.status === 'active' ? duel.schedule[game.round] ?? null : null, standings: duel.report?.players ?? [], report: game.phase === 'complete' ? duel.report : null } : null,
       players: game.players.map(p => ({ id: p.id, username: p.username, ready: p.ready, next: p.next, errors: p.errors, elapsed: p.elapsed, score: p.score, outcome: p.outcome, me: p.id === id })) } };
   }
@@ -181,6 +184,11 @@ export async function createApp({ database = process.env.DATABASE_URL || process
     if (game.phase === 'complete') return;
     clearTimeout(game.startTimer); clearTimeout(game.endTimer);
     game.phase = 'saving'; game.reason = reason; game.finishedAt = Date.now();
+    if (game.championship) {
+      if (reason === 'forfeit') { game.forfeitLoser = loser; game.championship.status = 'forfeit'; game.championship.forfeiter = loser; game.championship.finishedAt = game.finishedAt; }
+      for (const p of game.players) p.ready = false;
+      return persistChampionshipRace(game);
+    }
     if (game.duel && reason === 'forfeit') { game.duel.status = 'forfeit'; game.duel.forfeiter = loser; game.duel.finishedAt = game.finishedAt; }
     for (const p of game.players) p.ready = false;
     const [a, b] = game.players;
@@ -194,6 +202,7 @@ export async function createApp({ database = process.env.DATABASE_URL || process
     return persistResult(game);
   }
   function persistResult(game) {
+    if (game.championship) return persistChampionshipRace(game);
     game.phase = 'saving'; broadcast(game);
     game.finishPromise = (async () => {
       try {
@@ -218,17 +227,88 @@ export async function createApp({ database = process.env.DATABASE_URL || process
     return game.finishPromise;
   }
   function start(game) {
+    if (game.championship) return startChampionshipRace(game);
     game.phase = 'countdown'; game.startAt = Date.now() + countdownMs;
     game.board = Array.from({ length: game.size ** 2 }, (_, i) => i + 1);
     for (let i = game.board.length - 1; i > 0; i--) { const j = randomInt(i + 1); [game.board[i], game.board[j]] = [game.board[j], game.board[i]]; }
-    game.startTimer = setTimeout(() => { game.phase = 'racing'; broadcast(game); }, countdownMs);
+    game.startTimer = setTimeout(() => greenLight(game), countdownMs);
     game.endTimer = setTimeout(() => finish(game, 'timeout'), countdownMs + roundMs);
     broadcast(game);
+  }
+  function greenLight(game) {
+    if (game.phase !== 'countdown') return;
+    const remaining = game.startAt - Date.now();
+    if (remaining > 0) { game.startTimer = setTimeout(() => greenLight(game), remaining); return; }
+    game.phase = 'racing'; broadcast(game);
+  }
+  async function startChampionshipRace(game) {
+    game.phase = 'preparing'; broadcast(game);
+    let references;
+    try {
+      references = await Promise.all(game.players.map(async p => {
+        const row = await db.get(`SELECT r.score,t.splits FROM results r JOIN matches m ON m.id=r.match_id JOIN lap_telemetry t ON t.match_id=r.match_id AND t.user_id=r.user_id WHERE r.user_id=? AND m.size=? AND r.score IS NOT NULL ORDER BY r.score ASC,m.id ASC LIMIT 1`, p.id, game.size);
+        if (!row) return { id: p.id, best: null };
+        const splits = JSON.parse(row.splits);
+        return { id: p.id, best: Array.isArray(splits) && splits.length === game.size ** 2 && splits.every(n => Number.isInteger(n) && n >= 0) ? { score: row.score, splits, historical: true } : null };
+      }));
+    } catch {
+      if (game.phase === 'preparing') { game.phase = 'waiting'; for (const p of game.players) p.ready = false; broadcast(game); }
+      throw Error('Nie udało się przygotować pomiaru wyścigu. Spróbuj ponownie potwierdzić gotowość.');
+    }
+    if (game.phase !== 'preparing' || !roomPlayersPresent(game)) return;
+    prepareRace(game, Date.now() + countdownMs, references);
+    game.phase = 'countdown';
+    game.deadline = game.startAt + roundMs * game.championship.tracks[game.round - 1].laps;
+    game.startTimer = setTimeout(() => greenLight(game), countdownMs);
+    game.endTimer = setTimeout(() => finish(game, 'timeout'), countdownMs + roundMs * game.championship.tracks[game.round - 1].laps);
+    broadcast(game);
+  }
+  function persistChampionshipRace(game) {
+    game.phase = 'saving'; broadcast(game);
+    game.finishPromise = (async () => {
+      try {
+        const report = await db.transaction(async tx => {
+          if (!game.boards) {
+            const report = championshipReport(game.championship, game.players);
+            await saveDuel(tx, report);
+            return { report, ids: [report.races.at(-1)?.players[0]?.laps.at(-1)?.matchId ?? null] };
+          }
+          const count = Math.max(1, ...game.players.map(p => p.laps?.length ?? 0)), ids = [];
+          for (let index = 0; index < count; index++) {
+            const laps = game.players.map(p => p.laps?.[index] ?? null);
+            const reason = laps.every(Boolean) ? 'finished' : game.reason;
+            const finishedAt = Math.max(...laps.map(l => l?.finishedAt ?? 0)) || game.finishedAt;
+            const { id } = await tx.get('INSERT INTO matches(mode,size,finished_at,reason,save_key) VALUES (?,?,?,?,?) ON CONFLICT(save_key) DO UPDATE SET save_key=excluded.save_key RETURNING id', 'duel', game.size, finishedAt, reason, `${game.saveKey}:lap:${index + 1}`);
+            ids.push(id);
+            for (const [i, p] of game.players.entries()) {
+              const lap = laps[i], other = laps[1 - i];
+              const outcome = !lap && !other && reason === 'forfeit' ? p.id === game.forfeitLoser ? 'loss' : 'win' : lap?.score === other?.score ? 'draw' : (lap?.score ?? Infinity) < (other?.score ?? Infinity) ? 'win' : 'loss';
+              await tx.run('INSERT INTO results VALUES (?,?,?,?,?,?) ON CONFLICT(match_id,user_id) DO NOTHING', id, p.id, lap?.elapsed ?? null, lap?.errors ?? (index === (p.laps?.length ?? 0) ? p.errors : 0), lap?.score ?? null, outcome);
+              if (lap) await tx.run('INSERT INTO lap_telemetry VALUES (?,?,?) ON CONFLICT(match_id,user_id) DO NOTHING', id, p.id, JSON.stringify(lap.splits));
+            }
+          }
+          const race = raceResult(game, ids);
+          const races = [...game.championship.races.filter(r => r.index !== game.round), race];
+          const report = championshipReport(game.championship, game.players, races);
+          await saveDuel(tx, report);
+          return { report, ids };
+        });
+        game.matchId = report.ids.at(-1);
+        Object.assign(game.championship, { report: report.report, races: report.report.races, status: report.report.status, finishedAt: report.report.finishedAt });
+        game.saved = true;
+      } catch { game.saved = false; console.error('Nie udało się zapisać wyścigu. Można ponowić zapis.'); }
+      game.phase = 'complete'; rooms.delete(game.id); broadcast(game);
+    })();
+    return game.finishPromise;
   }
   async function leave(c) {
     const g = c.game;
     if (!g) return;
-    if (g.phase === 'waiting') {
+    if (['waiting', 'preparing'].includes(g.phase) && g.championship?.races.length) {
+      g.championship.status = 'forfeit'; g.championship.forfeiter = c.user.id; g.championship.finishedAt = Date.now();
+      await persistChampionshipRace(g);
+    } else if (g.phase === 'waiting' || g.phase === 'preparing') {
+      g.phase = 'waiting';
       g.players = g.players.filter(p => p.id !== c.user.id);
       for (const p of g.players) p.ready = false;
       if (!g.players.length) { rooms.delete(g.id); games.delete(g.id); } else broadcast(g);
@@ -242,6 +322,10 @@ export async function createApp({ database = process.env.DATABASE_URL || process
       // or changing the already recorded times and points of the last lap.
       g.duel.status = 'forfeit'; g.duel.forfeiter = c.user.id; g.duel.finishedAt = Date.now();
       await persistResult(g);
+    }
+    if (g.phase === 'complete' && g.championship?.status === 'active') {
+      g.championship.status = 'forfeit'; g.championship.forfeiter = c.user.id; g.championship.finishedAt = Date.now();
+      await persistChampionshipRace(g);
     }
     if (c.game === g) c.game = null;
     if (g.phase === 'complete') {
@@ -270,12 +354,14 @@ export async function createApp({ database = process.env.DATABASE_URL || process
         c.game = room; room.players.push(player(c)); broadcast(room); return;
       }
       const tracks = data.action === 'create' && data.tracks !== undefined ? parseTracks(data.tracks) : null;
+      if (data.championship !== undefined && typeof data.championship !== 'boolean') throw Error('Nieprawidłowa konfiguracja mistrzostw.');
+      if (data.championship === true && !tracks) throw Error('Wybierz tory i liczbę okrążeń mistrzostw.');
       if (data.action === 'create' && data.tracks !== undefined && !tracks) throw Error('Wybierz 1–4 różne tory (4×4–7×7), po 1–10 okrążeń na każdym.');
       if (!tracks && ![4, 5, 6, 7].includes(data.size)) throw Error('Wybierz rozmiar 4×4, 5×5, 6×6 lub 7×7.');
       if (g) await leave(c);
       if (c.game || c.revoked || c.ws.readyState !== WebSocket.OPEN) return;
       let id; do { id = randomBytes(4).toString('hex').slice(0, 6).toUpperCase(); } while (games.has(id));
-      const game = { id, round: 1, saveKey: randomUUID(), mode: data.action === 'solo' ? 'solo' : 'duel', size: tracks ? tracks[0].size : data.size, duel: tracks ? createDuel(tracks) : null, phase: 'waiting', players: [player(c)], board: [] };
+      const game = { id, round: 1, saveKey: randomUUID(), mode: data.action === 'solo' ? 'solo' : 'duel', size: tracks ? tracks[0].size : data.size, championship: data.championship ? createChampionship(tracks) : null, duel: tracks && !data.championship ? createDuel(tracks) : null, phase: 'waiting', players: [player(c)], board: [] };
       c.game = game; games.set(id, game);
       if (game.mode === 'solo') start(game); else { rooms.set(id, game); broadcast(game); }
     } else if (data.action === 'leave') { await leave(c); send(c, { type: 'state', game: null }); }
@@ -289,6 +375,14 @@ export async function createApp({ database = process.env.DATABASE_URL || process
       if (!roomPlayersPresent(g)) throw Error('Rywal opuścił pokój. Utwórz nowy pokój, aby zagrać.');
       g.players.find(p => p.id === c.user.id).ready = true;
       if (!g.players.every(p => p.ready)) { broadcast(g); return; }
+      if (g.championship) {
+        const championship = g.championship.status === 'active' ? g.championship : createChampionship(g.championship.tracks);
+        const round = championship === g.championship ? g.round + 1 : 1;
+        const next = { id: g.id, round, saveKey: randomUUID(), mode: 'duel', size: championship.tracks[round - 1].size, championship, phase: 'waiting', players: g.players.map(p => player(clients.get(p.id))), board: [] };
+        for (const p of next.players) clients.get(p.id).game = next;
+        games.set(next.id, next);
+        await start(next); return;
+      }
       // A fresh match object and save key isolate timers, retries and results
       // from previous rounds while both clients keep the same room code.
       const duel = g.duel ? g.duel.status === 'active' ? g.duel : createDuel(g.duel.tracks) : null;
@@ -296,15 +390,21 @@ export async function createApp({ database = process.env.DATABASE_URL || process
       const next = { id: g.id, round, saveKey: randomUUID(), mode: 'duel', size: duel ? duel.schedule[round - 1].size : g.size, duel, phase: 'waiting', players: g.players.map(p => player(clients.get(p.id))), board: [] };
       for (const p of next.players) clients.get(p.id).game = next;
       games.set(next.id, next);
-      start(next);
+      await start(next);
     }
     else if (data.action === 'ready') {
       if (!g || g.phase !== 'waiting' || g.players.length !== 2) throw Error('Poczekaj na drugiego gracza.');
       g.players.find(p => p.id === c.user.id).ready = true;
-      if (g.players.every(p => p.ready)) start(g); else broadcast(g);
+      if (g.players.every(p => p.ready)) await start(g); else broadcast(g);
     } else if (data.action === 'hit') {
       if (!g || g.phase !== 'racing' || Date.now() < g.startAt) return;
       const p = g.players.find(p => p.id === c.user.id);
+      if (g.championship) {
+        if (Date.now() >= g.deadline) { finish(g, 'timeout'); return; }
+        raceHit(g, p, data, Date.now());
+        if (g.players.every(p => p.finished)) finish(g); else broadcast(g);
+        return;
+      }
       if (p.score !== null || !Number.isInteger(data.number) || data.number < 1 || data.number > g.size ** 2) return;
       if (Date.now() >= g.startAt + roundMs) { finish(g, 'timeout'); return; }
       if (data.number !== p.next) p.errors++;

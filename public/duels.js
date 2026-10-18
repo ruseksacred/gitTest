@@ -1,3 +1,4 @@
+import { renderChampionshipReport } from './championship.js';
 const $ = selector => document.querySelector(selector);
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const time = value => value == null ? '—' : `${(value / 100).toFixed(2)} s`;
@@ -10,6 +11,7 @@ export function trackPlan(tracks) {
 }
 
 export function renderDuelReport(report, userId) {
+  if (report.format === 'championship-v1') return renderChampionshipReport(report, userId);
   const name = p => `${escape(p.username)}${p.id === userId ? ' (Ty)' : ''}`;
   const winner = report.players.find(p => p.id === report.winner);
   const title = report.status === 'active' ? 'Klasyfikacja po okrążeniu' : report.status === 'interrupted' ? 'Mecz przerwany' : winner ? `Wygrywa ${escape(winner.username)}` : 'Remis w meczu';
@@ -34,8 +36,9 @@ export function initDuels({ api, getUser, toast }) {
     for (const input of document.querySelectorAll('[data-duel-track]')) $('#duel-laps-' + input.dataset.duelTrack).disabled = !input.checked;
     try {
       const tracks = config();
-      const laps = tracks.reduce((sum, t) => sum + t.laps, 0), total = tracks.reduce((sum, t) => sum + t.laps * (1 + (t.size - 4) / 2), 0);
-      $('#duel-config-summary').textContent = `${tracks.map(t => `${t.size}×${t.size}: ${t.laps} okr.`).join(' → ')} · ${laps} rund · pula ${points(total)} pkt`;
+      const laps = tracks.reduce((sum, t) => sum + t.laps, 0);
+      const lapWord = laps === 1 ? 'okrążenie' : laps % 10 >= 2 && laps % 10 <= 4 && (laps % 100 < 12 || laps % 100 > 14) ? 'okrążenia' : 'okrążeń';
+      $('#duel-config-summary').textContent = `${tracks.map(t => `${t.size}×${t.size}: ${t.laps} okr.`).join(' → ')} · ${tracks.length} ${tracks.length === 1 ? 'wyścig' : 'wyścigi'} · ${laps} ${lapWord} · 2/1 pkt po wyścigu`;
     } catch (error) { $('#duel-config-summary').textContent = error.message; }
   }
   $('#duel-settings').addEventListener('input', updateConfig);
@@ -56,8 +59,8 @@ export function initDuels({ api, getUser, toast }) {
       $('#duel-history').innerHTML = data.matches.length ? data.matches.map(match => {
         const me = match.players.find(p => p.id === user.id), rival = match.players.find(p => p.id !== user.id);
         const outcome = match.status === 'active' || match.status === 'interrupted' ? statuses[match.status] : match.winner === null ? 'Remis' : match.winner === user.id ? 'Wygrana' : 'Przegrana';
-        return `<article class="duel-history-row"><div><strong>vs ${escape(rival.username)}</strong><small>${escape(new Date(match.createdAt).toLocaleString('pl-PL'))} · ${outcome}${match.status === 'forfeit' ? ' · walkower' : ''}</small><small>${match.tracks.map(t => `${t.size}×${t.size}: ${t.laps} okr.`).join(' → ')} · ${match.completedRounds} / ${match.totalRounds} rund</small></div><div><strong>${points(me.points)} : ${points(rival.points)}</strong><button class="button small secondary" data-duel-report="${match.id}">Raport meczu →</button></div></article>`;
-      }).join('') : '<p class="ranking-status">Tu pojawią się mecze z wybranymi torami i ich pełne raporty. Lista pokazuje ostatnich 20 meczów.</p>';
+        return `<article class="duel-history-row"><div><strong>${match.format === 'championship-v1' ? 'Mistrzostwa' : 'Mecz'} vs ${escape(rival.username)}</strong><small>${escape(new Date(match.createdAt).toLocaleString('pl-PL'))} · ${outcome}${match.status === 'forfeit' ? ' · walkower' : ''}</small><small>${match.tracks.map(t => `${t.size}×${t.size}: ${t.laps} okr.`).join(' → ')} · ${match.completedRounds} / ${match.totalRounds} ${match.format === 'championship-v1' ? 'wyścigów' : 'rund'}</small></div><div><strong>${points(me.points)} : ${points(rival.points)}</strong><button class="button small secondary" data-duel-report="${match.id}">Raport →</button></div></article>`;
+      }).join('') : '<p class="ranking-status">Tu pojawią się mistrzostwa z wybranymi torami i pełnymi raportami. Lista pokazuje ostatnich 20 rozgrywek.</p>';
     } catch (error) {
       if (request !== sequence || getUser()?.id !== user.id) return;
       $('#duel-history').innerHTML = '<p class="ranking-status">Nie udało się pobrać historii meczów.</p><button class="button small secondary" data-duel-retry>Spróbuj ponownie</button>';
@@ -72,6 +75,7 @@ export function initDuels({ api, getUser, toast }) {
       button.disabled = true;
       const data = await api(`duels/${button.dataset.duelReport}`);
       if (request !== reportRequest || getUser()?.id !== user.id) return;
+      $('#duel-report-title').textContent = data.report.format === 'championship-v1' ? 'RAPORT MISTRZOSTW' : 'RAPORT MECZU';
       $('#duel-report-content').innerHTML = renderDuelReport(data.report, user.id);
       if (!dialog.open) dialog.showModal();
     } catch (error) { if (getUser()?.id === user.id) toast(error.message); }

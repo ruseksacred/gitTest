@@ -2,6 +2,7 @@ import { initPwa } from './pwa.js';
 import { createGameConnection } from './connection.js';
 import { createRanking } from './ranking.js';
 import { initDuels, trackPlan, renderDuelReport, points } from './duels.js';
+import { renderChampionship, tickChampionship } from './championship.js';
 
 const $ = selector => document.querySelector(selector);
 const pwa = initPwa();
@@ -50,8 +51,8 @@ const connection = createGameConnection({
   },
   onDisconnect(reason) {
     connected = false;
-    if (game && (game.phase !== 'complete' || game.saved === false || game.duel?.status === 'active')) {
-      const interrupted = game.mode === 'duel' && (['countdown', 'racing', 'saving'].includes(game.phase) || game.duel?.status === 'active');
+    if (game && (game.phase !== 'complete' || game.saved === false || game.duel?.status === 'active' || game.championship?.status === 'active')) {
+      const interrupted = game.mode === 'duel' && (['countdown', 'racing', 'saving'].includes(game.phase) || game.duel?.status === 'active' || game.championship?.status === 'active');
       const unsaved = game.saved === false;
       game = null; renderGame();
       if (interrupted && reason !== 'logout') toast('Połączenie przerwało pojedynek. Po ponownym połączeniu sprawdzimy wynik w statystykach.');
@@ -81,9 +82,9 @@ function setup() {
   document.querySelectorAll('[data-mode]').forEach(b => { const selected = b.dataset.mode === mode; b.classList.toggle('selected', selected); b.setAttribute('aria-selected', selected); });
   document.querySelectorAll('[data-size]').forEach(b => { const selected = +b.dataset.size === size; b.classList.toggle('selected', selected); b.setAttribute('aria-pressed', selected); });
   $('#size-description').textContent = `${size ** 2} liczb · ${{ 4: 'standard', 5: 'wyzwanie', 6: 'ekspert', 7: 'mistrz' }[size]}`;
-  $('#mode-title').textContent = mode === 'solo' ? 'Ty kontra stoper.' : 'Dwa kokpity. Jeden zwycięzca.';
-  $('#mode-description').textContent = mode === 'solo' ? 'Klikaj liczby od 1 do ostatniej, w rosnącej kolejności. Liczy się szybkość. I precyzja.' : 'Wybierz tory i liczbę okrążeń. Zaproś rywala kodem pokoju. O wyniku meczu decyduje suma punktów ze wszystkich rund.';
-  $('#start-button').innerHTML = `${mode === 'solo' ? 'Rozpocznij trening' : 'Utwórz pokój'} <span>→</span>`;
+  $('#mode-title').textContent = mode === 'solo' ? 'Ty kontra stoper.' : 'Wasze własne mistrzostwa.';
+  $('#mode-description').textContent = mode === 'solo' ? 'Klikaj liczby od 1 do ostatniej, w rosnącej kolejności. Liczy się szybkość. I precyzja.' : 'Jeden tor to wyścig, jedna plansza to okrążenie. Jedziecie płynnie, a punkty z wyścigów tworzą klasyfikację mistrzostw.';
+  $('#start-button').innerHTML = `${mode === 'solo' ? 'Rozpocznij trening' : 'Utwórz mistrzostwa'} <span>→</span>`;
   $('#join-section').hidden = mode !== 'duel';
   $('#solo-settings').hidden = mode !== 'solo';
   $('#duel-settings').hidden = mode !== 'duel';
@@ -108,10 +109,11 @@ function shell(content) {
   return `<div class="game-body"><div class="game-top"><span class="eyebrow">${game.mode === 'solo' ? 'TRENING SOLO' : `POJEDYNEK / ${escape(game.code)} · RUNDA ${game.round}`} · ${game.size} × ${game.size}</span><button data-action="leave">${game.phase === 'complete' ? duel?.status === 'active' ? 'Opuść mecz' : 'Wróć do centrum' : 'Opuść'} →</button></div>${progress}${content}<div id="leave-confirm" class="confirm-leave" hidden><p>${game.mode === 'duel' ? 'Opuszczenie rozpoczętego meczu oznacza przegraną walkowerem, także między okrążeniami.' : 'Bieżący trening nie zostanie zapisany.'}</p><div><button class="button small secondary" data-action="confirm-leave">Opuść grę</button><button class="button small primary" data-action="cancel-leave">Zostań</button></div></div></div>`;
 }
 function renderGame() {
-  pwa.setGameActive(game && (game.phase !== 'complete' || game.saved === false || game.duel?.status === 'active'));
+  pwa.setGameActive(game && (game.phase !== 'complete' || game.saved === false || game.duel?.status === 'active' || game.championship?.status === 'active'));
   document.body.classList.toggle('in-game', !!game);
   $('#setup').hidden = !!game; $('#game').hidden = !game;
   if (!game) { renderKey = ''; $('#game').innerHTML = ''; setup(); return; }
+  if (game.championship) { renderChampionship(game, connected, user.id); renderKey = ''; return; }
   const me = game.players.find(p => p.me), opponent = game.players.find(p => !p.me);
   const key = `${game.id}:${game.round}:${game.phase}`;
   if (game.phase === 'waiting') {
@@ -161,7 +163,8 @@ function tick() {
   if (game) {
     const now = Date.now() + serverOffset;
     if (game.phase === 'countdown' && $('#countdown-number')) $('#countdown-number').textContent = Math.max(1, Math.ceil((game.startAt - now) / 1000));
-    if (game.phase === 'racing' && $('#race-time')) { const me = game.players.find(p => p.me); $('#race-time').textContent = me.score === null ? (Math.max(0, Math.min(now - game.startAt, 180000) + me.errors * 1000) / 1000).toFixed(2) : seconds(me.score); }
+    if (game.championship) tickChampionship(game, now);
+    else if (game.phase === 'racing' && $('#race-time')) { const me = game.players.find(p => p.me); $('#race-time').textContent = me.score === null ? (Math.max(0, Math.min(now - game.startAt, 180000) + me.errors * 1000) / 1000).toFixed(2) : seconds(me.score); }
   }
   requestAnimationFrame(tick);
 }
@@ -179,24 +182,24 @@ document.addEventListener('click', async event => {
   if (!button || button.disabled) return;
   if (button.dataset.mode) { mode = button.dataset.mode; setup(); return; }
   if (button.dataset.size) { size = +button.dataset.size; setup(); return; }
-  if (button.dataset.number) { command('hit', { number: +button.dataset.number }); return; }
+  if (button.dataset.number) { command('hit', { number: +button.dataset.number, ...(game?.championship ? { lap: +button.dataset.lap, raceId: button.dataset.raceId } : {}) }); return; }
   try {
     switch (button.dataset.action) {
       case 'auth': openAuth(); break;
       case 'close-auth': dialog.close(); break;
       case 'switch-auth': authMode = authMode === 'login' ? 'register' : 'login'; updateAuth(); break;
-      case 'start': command(mode === 'solo' ? 'solo' : 'create', mode === 'solo' ? { size } : { tracks: duels.config() }); break;
+      case 'start': command(mode === 'solo' ? 'solo' : 'create', mode === 'solo' ? { size } : { tracks: duels.config(), championship: true }); break;
       case 'ready': command('ready'); break;
       case 'retry-save': command('retry-save'); break;
-      case 'again': if (game.duel?.status === 'active') { toast('Zakończ lub opuść bieżący mecz przed utworzeniem nowego.'); break; } command(game.mode === 'solo' ? 'solo' : 'create', game.duel ? { tracks: game.duel.tracks.map(({ size, laps }) => ({ size, laps })) } : { size: game.size }); break;
+      case 'again': if (game.duel?.status === 'active' || game.championship?.status === 'active') { toast('Zakończ lub opuść bieżące mistrzostwa przed utworzeniem nowych.'); break; } command(game.mode === 'solo' ? 'solo' : 'create', game.championship ? { tracks: game.championship.tracks, championship: true } : game.duel ? { tracks: game.duel.tracks.map(({ size, laps }) => ({ size, laps })) } : { size: game.size }); break;
       case 'rematch': command('rematch', { matchId: game.matchId }); break;
       case 'home': if (game) toast('Użyj przycisku „Opuść” lub „Wróć do centrum” na planszy.'); else window.scrollTo({ top: 0, behavior: 'smooth' }); break;
       case 'copy-code': try { await navigator.clipboard.writeText(game.code); toast('Kod pokoju skopiowany.'); } catch { toast(`Kod pokoju: ${game.code}`); } break;
-      case 'leave': if (game && (['racing', 'countdown'].includes(game.phase) || (game.duel?.status === 'active' && game.phase !== 'waiting'))) $('#leave-confirm').hidden = false; else if (game?.phase === 'complete' && !connected) { game = null; renderGame(); } else command('leave'); break;
+      case 'leave': if (game && (['racing', 'countdown', 'preparing'].includes(game.phase) || ((game.duel?.status === 'active' || game.championship?.status === 'active') && game.phase !== 'waiting'))) $('#leave-confirm').hidden = false; else if (game?.phase === 'complete' && !connected) { game = null; renderGame(); } else command('leave'); break;
       case 'confirm-leave': command('leave'); break;
       case 'cancel-leave': $('#leave-confirm').hidden = true; break;
       case 'logout':
-        if (game && (['countdown', 'racing'].includes(game.phase) || (game.duel?.status === 'active' && game.phase !== 'waiting'))) { toast('Najpierw zakończ lub opuść mecz.'); break; }
+        if (game && (['countdown', 'racing', 'preparing'].includes(game.phase) || ((game.duel?.status === 'active' || game.championship?.status === 'active') && game.phase !== 'waiting'))) { toast('Najpierw zakończ lub opuść mistrzostwa.'); break; }
         await api('logout', {}); user = null; stats = null; game = null; connected = false; connection.stop(); $('#connection-banner').hidden = true; updateAccount(); renderGame(); renderStats(); break;
       case 'reconnect':
         user = (await api('me')).user;

@@ -341,6 +341,128 @@ test('planned match: report rollback and a lost acknowledgement can be retried w
   assert.equal((await app.db.get('SELECT COUNT(*) count FROM results WHERE user_id=?', a.id)).count, 1);
 });
 
+test('championship: independent laps, same per-lap boards, exact gaps, race points and persisted telemetry', async t => {
+  const { register, request, app } = await fixture(t, { countdownMs: 1100, roundMs: 10000 });
+  const a = await register('ChampA'), b = await register('ChampB'), outside = await register('ChampC');
+  a.send('create', { championship: true, tracks: [{ size: 4, laps: 2 }, { size: 5, laps: 1 }] });
+  const room = (await a.wait(phase('waiting'))).game;
+  b.send('join', { code: room.code }); await b.wait(phase('waiting'));
+  a.send('ready'); b.send('ready');
+  const race = (await a.wait(phase('racing'))).game;
+  const initialB = (await b.wait(phase('racing'))).game;
+  assert.deepEqual(race.board, initialB.board); assert.equal(race.championship.drivers.find(p => p.me).best, null);
+  const get = app.db.get; let reads = 0;
+  app.db.get = async (...args) => { reads++; return get(...args); };
+  const hit = (client, lap, number, raceId = race.raceId) => client.send('hit', { lap, number, raceId });
+  for (let n = 1; n <= 16; n++) hit(a, 1, n);
+  const lapTwo = (await a.wait(m => m.game?.championship?.drivers.find(p => p.me).lap === 2)).game;
+  assert.equal(lapTwo.phase, 'racing'); assert.equal(lapTwo.championship.drivers.find(p => !p.me).lap, 1);
+  hit(a, 1, 16); hit(a, 2, 1);
+  const checkpoint = (await a.wait(m => m.game?.championship?.drivers.find(p => p.me).next === 2 && m.game.championship.drivers.find(p => p.me).lap === 2)).game;
+  assert.equal(checkpoint.championship.drivers.find(p => p.me).errors, 0, 'Delayed hits from lap one cannot penalize lap two');
+  assert.notEqual(checkpoint.championship.drivers.find(p => p.me).delta, null);
+  hit(b, 1, 2); hit(b, 1, 1);
+  const gapState = (await b.wait(m => m.game?.championship?.gap?.checkpoint === 1)).game;
+  assert.ok(gapState.championship.gap.value >= 100, 'The cumulative checkpoint gap includes the penalty');
+  for (let n = 2; n <= 16; n++) hit(b, 1, n);
+  const bLapTwo = (await b.wait(m => m.game?.championship?.drivers.find(p => p.me).lap === 2)).game;
+  assert.deepEqual(lapTwo.board, bLapTwo.board, 'Each driver receives the same layout for the same lap, even at different times');
+  for (let n = 2; n <= 16; n++) hit(a, 2, n);
+  await a.wait(m => m.game?.championship?.drivers.find(p => p.me).finished);
+  assert.equal(reads, 0, 'Live timing and lap changes must not query the database'); app.db.get = get;
+  assert.equal((await request('duels', undefined, a.cookie)).body.matches.length, 0, 'Points are not awarded after individual laps');
+  for (let n = 1; n <= 16; n++) hit(b, 2, n);
+  const result = (await a.wait(phase('complete'))).game;
+  const report = result.championship.report;
+  assert.equal(report.format, 'championship-v1'); assert.equal(report.status, 'active');
+  assert.deepEqual(report.players.map(p => p.points), [2, 1]);
+  assert.equal(report.races.length, 1); assert.equal(report.races[0].players[0].laps.length, 2);
+  assert.equal((await request('stats', undefined, a.cookie)).body.history.length, 2);
+  assert.equal((await app.db.get('SELECT COUNT(*) count FROM lap_telemetry')).count, 4);
+  assert.equal((await request(`duels/${report.id}`, undefined, outside.cookie)).status, 404);
+  // Mutual readiness advances the race, never individual laps.
+  a.messages.length = b.messages.length = 0;
+  a.send('rematch', { matchId: result.matchId }); b.send('rematch', { matchId: result.matchId });
+  const next = (await a.wait(phase('racing'))).game;
+  assert.equal(next.size, 5); assert.equal(next.round, 2); assert.equal(next.code, room.code);
+  for (const client of [a, b]) for (let n = 1; n <= 25; n++) client.send('hit', { raceId: next.raceId, lap: 1, number: n });
+  const final = (await a.wait(m => m.game?.phase === 'complete' && m.game.raceId === next.raceId)).game;
+  assert.equal(final.championship.report.status, 'complete');
+  assert.equal(final.championship.report.races.length, 2);
+  assert.equal(final.championship.report.players.reduce((n, p) => n + p.points, 0), 6);
+  a.messages.length = b.messages.length = 0;
+  a.send('rematch', { matchId: final.matchId }); b.send('rematch', { matchId: final.matchId });
+  const replay = (await a.wait(phase('racing'))).game;
+  assert.equal(replay.championship.drivers.find(p => p.me).best.historical, true);
+  assert.equal(replay.championship.drivers.find(p => p.me).best.score, Math.min(...report.races[0].players.find(p => p.id === a.id).laps.map(l => l.score)));
+});
+
+test('championship: a telemetry write failure rolls back all laps and retries award race points once', async t => {
+  const { register, request, app } = await fixture(t);
+  const a = await register('TelemetryA'), b = await register('TelemetryB');
+  a.send('create', { championship: true, tracks: [{ size: 4, laps: 1 }] });
+  const room = (await a.wait(phase('waiting'))).game;
+  b.send('join', { code: room.code }); await b.wait(phase('waiting')); a.send('ready'); b.send('ready');
+  const g = (await a.wait(phase('racing'))).game;
+  const transaction = app.db.transaction;
+  app.db.transaction = callback => transaction(tx => callback({ ...tx, async run(sql, ...args) { if (sql.includes('INSERT INTO lap_telemetry')) throw Error('Simulated telemetry outage'); return tx.run(sql, ...args); } }));
+  for (const c of [a, b]) for (let n = 1; n <= 16; n++) c.send('hit', { raceId: g.raceId, lap: 1, number: n });
+  await a.wait(m => m.game?.phase === 'complete' && m.game.saved === false);
+  assert.equal((await request('stats', undefined, a.cookie)).body.history.length, 0);
+  assert.equal((await request('duels', undefined, a.cookie)).body.matches.length, 0);
+  app.db.transaction = async callback => { await transaction(callback); throw Error('Lost race acknowledgement'); };
+  a.messages.length = 0; a.send('retry-save'); await a.wait(m => m.game?.phase === 'complete' && m.game.saved === false);
+  app.db.transaction = transaction;
+  a.send('retry-save');
+  const saved = (await a.wait(m => m.game?.phase === 'complete' && m.game.saved)).game;
+  assert.equal(saved.championship.report.races.length, 1);
+  assert.equal(saved.championship.report.players.reduce((n, p) => n + p.points, 0), 3);
+  assert.equal((await app.db.get('SELECT COUNT(*) count FROM lap_telemetry')).count, 2);
+  assert.equal((await request('stats', undefined, a.cookie)).body.history.length, 1);
+});
+
+for (const phaseToLeave of ['complete', 'preparing']) test(`championship: leaving at ${phaseToLeave} forfeits the standings without an unplayed race`, async t => {
+  const { register, request, app } = await fixture(t);
+  const a = await register('ChampExitA'), b = await register('ChampExitB');
+  a.send('create', { championship: true, tracks: [{ size: 4, laps: 1 }, { size: 5, laps: 1 }] });
+  const room = (await a.wait(phase('waiting'))).game;
+  b.send('join', { code: room.code }); await b.wait(phase('waiting')); a.send('ready'); b.send('ready');
+  const g = (await a.wait(phase('racing'))).game;
+  for (const c of [a, b]) for (let n = 1; n <= 16; n++) c.send('hit', { raceId: g.raceId, lap: 1, number: n });
+  const saved = (await a.wait(phase('complete'))).game;
+  let release = () => {};
+  const get = app.db.get;
+  if (phaseToLeave === 'preparing') {
+    const gate = new Promise(resolve => { release = resolve; });
+    app.db.get = async (...args) => { await gate; return get(...args); };
+    a.messages.length = b.messages.length = 0;
+    a.send('rematch', { matchId: saved.matchId }); b.send('rematch', { matchId: saved.matchId });
+    await a.wait(phase('preparing'));
+  }
+  a.send('leave'); await a.wait(m => m.type === 'state' && m.game === null);
+  release(); app.db.get = get;
+  const ended = (await b.wait(m => m.game?.phase === 'complete' && m.game.championship?.status === 'forfeit' && m.game.saved)).game;
+  assert.equal(ended.championship.report.winner, b.id);
+  assert.equal(ended.championship.report.races.length, 1);
+  assert.equal((await request('stats', undefined, a.cookie)).body.history.length, 1);
+});
+
+test('championship: race timeout keeps completed laps and gives DNF no time or race points', async t => {
+  const { register } = await fixture(t, { roundMs: 200 });
+  const a = await register('RaceTimeoutA'), b = await register('RaceTimeoutB');
+  a.send('create', { championship: true, tracks: [{ size: 4, laps: 2 }] });
+  const room = (await a.wait(phase('waiting'))).game;
+  b.send('join', { code: room.code }); await b.wait(phase('waiting')); a.send('ready'); b.send('ready');
+  const g = (await a.wait(phase('racing'))).game;
+  for (let lap = 1; lap <= 2; lap++) for (let n = 1; n <= 16; n++) a.send('hit', { raceId: g.raceId, lap, number: n });
+  const finished = (await a.wait(m => m.game?.phase === 'complete')).game;
+  const report = finished.championship.report;
+  assert.equal(report.races[0].reason, 'timeout'); assert.equal(report.winner, a.id);
+  const winner = report.races[0].players.find(p => p.id === a.id), dnf = report.races[0].players.find(p => p.id === b.id);
+  assert.equal(winner.points, 2); assert.equal(winner.laps.length, 2);
+  assert.equal(dnf.points, 0); assert.equal(dnf.score, null); assert.equal(dnf.gap, null); assert.equal(dnf.laps.length, 0);
+});
+
 test('duel: leaving waiting room is free; disconnect after start forfeits and persists', async t => {
   const { request, register } = await fixture(t);
   const a = await register('LeaveA'), b = await register('LeaveB');
