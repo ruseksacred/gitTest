@@ -18,24 +18,36 @@
   <link rel="stylesheet" href="/ranking.css">
   <link rel="stylesheet" href="/duels.css">
   <link rel="stylesheet" href="/championship.css">
+  <link rel="stylesheet" href="/layout.css">
   <script type="module" src="/app.js"></script>
 </head>
 <body>
+  <a class="skip-link" href="#app-main">Przejdź do treści</a>
   <header class="topbar">
-    <a href="/" class="brand" aria-label="Race Focus — strona główna"><span class="brand-mark">RF<span></span></span><span>RACE<span class="brand-light">FOCUS</span><small>TRAIN YOUR EDGE</small></span></a>
-    <nav aria-label="Nawigacja"><button class="nav-link active" data-action="home">Centrum treningowe</button><a class="nav-link" href="#run-ranking">Statystyki</a></nav>
+    <a href="#/home" data-route="home" class="brand" aria-label="Race Focus — centrum"><span class="brand-mark">RF<span></span></span><span>RACE<span class="brand-light">FOCUS</span><small>TRAIN YOUR EDGE</small></span></a>
+    <div class="topbar-section"><span class="live-dot"></span><span id="current-section">Centrum kierowcy</span></div>
     <div class="account" id="account"><button class="button small secondary" data-action="auth">Zaloguj się <span>→</span></button></div>
   </header>
-  <main>
+  <nav class="app-menu" aria-label="Główne menu"><span class="menu-caption">TWÓJ PADOK</span><a href="#/home" data-route="home" class="menu-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-8H9v8H4a1 1 0 0 1-1-1Z"/></svg><span>Centrum</span></a><a href="#/solo" data-route="solo" class="menu-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M9 2h6m-3 3v3m0 5 3-3m5-5 2 2"/></svg><span>Solo</span></a><a href="#/championship" data-route="championship" class="menu-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V3m0 1c5-4 9 4 15 0v10c-6 4-10-4-15 0"/></svg><span>Mistrzostwa</span></a><a href="#/stats" data-route="stats" class="menu-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h16M6 16v-5m6 5V4m6 12V8"/></svg><span>Statystyki</span></a><a href="#/history" data-route="history" class="menu-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10a9 9 0 1 1 1 7M3 4v6h6m3-3v6l4 2"/></svg><span>Historia</span></a><div class="menu-footnote"><span class="live-dot"></span> KAŻDA SETNA SIĘ LICZY</div></nav>
+  <main id="app-main" tabindex="-1">
     <div id="network-notice" class="pwa-notice network-notice" role="status" hidden>Brak internetu. Gra wymaga połączenia. Po jego przywróceniu połącz się ponownie; rozpoczęty pojedynek może zakończyć się walkowerem.</div>
     <div id="update-notice" class="pwa-notice" role="status" hidden><span id="update-text">Nowa wersja Race Focus jest gotowa.</span><button class="button small secondary" id="update-button">Zaktualizuj</button></div>
-    <section class="intro"><div><div class="eyebrow"><span class="live-dot"></span> MENTAL PERFORMANCE LAB</div><h1>Przewaga zaczyna się<br>w <em>Twojej głowie.</em></h1><p>Znajdź rytm. Wyostrz koncentrację. Pobij swój czas.</p></div><div class="intro-art" aria-hidden="true"><div class="track track-one"></div><div class="track track-two"></div><span class="track-number">01</span><span class="track-label">FOCUS / REACT / REPEAT</span><span class="track-car"></span></div></section>
+    <a id="resume-session" class="resume-session" href="#/race" data-route="race" hidden><span>Twoja ostatnia sesja</span><strong>Wróć do wyników i pokoju <span aria-hidden="true">→</span></strong></a>
+    <section id="home-view" data-app-view="home" aria-labelledby="home-title">
+      <div class="intro"><div><div class="eyebrow"><span class="live-dot"></span> CENTRUM KIEROWCY</div><h1 id="home-title" data-view-heading tabindex="-1">Twój rytm.<br><em>Twoja przewaga.</em></h1><p>Trenuj koncentrację. Walcz o setne. Wskocz na tor.</p><a class="button primary" href="#/solo" data-route="solo">Rozpocznij trening <span aria-hidden="true"><svg class="arrow-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 18 18 6M6 6h12v12"/></svg></span></a></div><div class="intro-art" aria-hidden="true"><div class="track track-one"></div><div class="track track-two"></div><span class="track-number">01</span><span class="track-label">FOCUS / REACT / REPEAT</span><span class="track-car"></span></div></div>
+      <div class="home-section-heading"><h2>Wybierz swoją sesję</h2><span>OD TRENINGU DO PODIUM</span></div>
+      <div class="session-cards">
+        <a class="session-card solo-card" href="#/solo" data-route="solo"><span class="session-card-top"><span class="eyebrow">01 / TRENING</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M9 2h6m-3 3v3m0 5 3-3m5-5 2 2"/></svg></span><h3>Solo</h3><p>Znajdź tempo na wybranym torze. Mierz okrążenia i ścigaj się ze swoim rekordem.</p><div class="session-card-bottom"><span>4 TORY · WŁASNE TEMPO</span><span class="card-arrow" aria-hidden="true"><svg class="arrow-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 18 18 6M6 6h12v12"/></svg></span></div></a>
+        <a class="session-card championship-card" href="#/championship" data-route="championship"><span class="session-card-top"><span class="eyebrow">02 / RYWALIZACJA</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V3m0 1c5-4 9 4 15 0v10c-6 4-10-4-15 0"/></svg></span><h3>Mistrzostwa</h3><p>Zaproś rywala. Ułóż kalendarz wyścigów i walcz o zwycięstwo w całym sezonie.</p><div class="session-card-bottom"><span>1 VS 1 · WSPÓLNY POKÓJ</span><span class="card-arrow" aria-hidden="true"><svg class="arrow-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 18 18 6M6 6h12v12"/></svg></span></div></a>
+      </div>
+      <div class="home-shortcuts"><a href="#/stats" data-route="stats"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h16M6 16v-5m6 5V4m6 12V8"/></svg><span><strong>Twoje statystyki</strong><small>Rekordy, kary i ranking okrążeń</small></span><span aria-hidden="true">→</span></a><a href="#/history" data-route="history"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10a9 9 0 1 1 1 7M3 4v6h6m3-3v6l4 2"/></svg><span><strong>Historia mistrzostw</strong><small>Wyniki i pełne raporty wyścigów</small></span><span aria-hidden="true">→</span></a></div>
     <section id="install-card" class="install-card" aria-label="Instalacja aplikacji"><img src="/icons/icon-192.png" width="42" height="42" alt=""><div><strong>Race Focus na ekranie Twojego telefonu</strong><p>Własna ikona, osobne okno. Ta sama gra i Twoje wyniki.</p></div><button class="button small secondary" id="install-button">Dodaj do ekranu</button></section>
-    <div class="workspace">
+    </section>
+    <section id="play-view" data-app-view="solo championship race" aria-label="Sesja na torze" hidden>
+      <div class="view-heading" id="play-heading"><div><span class="eyebrow" id="play-eyebrow">PRZYGOTOWANIE DO STARTU</span><h1 id="play-title" data-view-heading tabindex="-1">Trening solo</h1></div><span class="view-tag">FOCUS / REACT / REPEAT</span></div>
+      <div class="setup-layout">
       <section class="training-panel" aria-label="Rozgrywka">
-        <div class="panel-heading"><div><span class="section-index">01 /</span><h2>Number sprint</h2></div><span class="pill">KONCENTRACJA + REFLEKS</span></div>
         <div id="setup">
-          <div class="mode-tabs" role="tablist" aria-label="Tryb gry"><button role="tab" aria-selected="true" class="mode-tab selected" data-mode="solo"><span>◎</span> Trening solo</button><button role="tab" aria-selected="false" class="mode-tab" data-mode="duel"><span>⚑</span> Mistrzostwa 1 vs 1</button></div>
           <div class="setup-body"><div class="setup-copy"><span class="eyebrow muted">TWÓJ NASTĘPNY STINT</span><h3 id="mode-title">Ty kontra stoper.</h3><p id="mode-description">Klikaj liczby od 1 do ostatniej, w rosnącej kolejności. Liczy się szybkość. I precyzja.</p></div>
           <div id="solo-settings"><div class="size-label"><span>Tor — rozmiar planszy</span><span id="size-description">16 liczb · standard</span></div><div class="size-options" role="group" aria-label="Tor treningu solo"><button data-size="4" class="selected" aria-pressed="true"><span>4 × 4</span><small>STANDARD</small></button><button data-size="5" aria-pressed="false"><span>5 × 5</span><small>WYZWANIE</small></button><button data-size="6" aria-pressed="false"><span>6 × 6</span><small>EKSPERT</small></button><button data-size="7" aria-pressed="false"><span>7 × 7</span><small>MISTRZ</small></button></div>
           <div class="solo-lap-choice"><label for="solo-laps">Liczba okrążeń<input id="solo-laps" type="number" min="1" max="10" step="1" value="1" inputmode="numeric" required aria-describedby="solo-plan-summary"></label><p id="solo-plan-summary" role="status"></p></div><div class="preview-board" id="preview-board" aria-hidden="true"></div></div>
@@ -47,11 +59,12 @@
         </div>
         <div id="game" hidden></div>
       </section>
-      <aside>
+      <aside class="session-guide" id="session-guide"><span class="eyebrow">NOTATKA Z PADOKU</span><h2>Najpierw precyzja.<br>Potem prędkość.</h2><p>Klikaj liczby po kolei, od 1. Każda ukończona plansza to jedno okrążenie.</p><ol><li><span>01</span><div><strong>Ustaw sesję</strong><p>Wybierz tor i liczbę okrążeń.</p></div></li><li><span>02</span><div><strong>Złap rytm</strong><p>Jedź płynnie. Każda pomyłka to +1 s.</p></div></li><li><span>03</span><div><strong>Sprawdź swoje tempo</strong><p>Śledź deltę do najlepszego kółka i czasy na mecie.</p></div></li></ol><div class="guide-footnote">Na torze zobaczysz planszę i pomiary.<br>Reszta poczeka w padoku.</div></aside>
+      </div>
+    </section>
+    <section id="stats-view" data-app-view="stats" aria-labelledby="stats-title" hidden>
+      <div class="view-heading"><div><span class="eyebrow">KAŻDA SETNA MA ZNACZENIE</span><h1 id="stats-title" data-view-heading tabindex="-1">Twoje statystyki</h1><p>Sprawdź rekordy i porównaj przejazdy na tym samym torze.</p></div></div>
         <section class="stats-panel" id="statistics"><div class="panel-heading"><div><span class="section-index">02 /</span><h2>Twoje tempo</h2></div><span class="small-icon">→</span></div><div class="stats-content"><div class="record-label">REKORD SOLO <span id="record-size">4 × 4</span></div><div class="big-record"><span id="best-time">—</span><small>sek.</small></div><div class="record-meta" id="record-meta">Twój pierwszy rekord czeka na start.</div><div class="duel-totals"><div><strong id="total-wins">0</strong><span>RUNDY WYGRANE</span></div><div><strong id="total-losses">0</strong><span>RUNDY PRZEGRANE</span></div><div><strong id="total-draws">0</strong><span>RUNDY REMISOWE</span></div></div></div></section>
-        <section class="tip-card"><span class="eyebrow">NOTATKA Z PADOKU</span><h3>Najpierw precyzja.<br>Potem prędkość.</h3><p>Patrz na całą planszę. Szukaj następnej liczby, zanim klikniesz obecną. Złap swój rytm.</p><div class="tip-footer"><span>RACE FOCUS / TRAINING NOTES</span><span>→</span></div></section>
-      </aside>
-    </div>
     <section class="history-panel run-ranking" id="run-ranking" aria-labelledby="ranking-title">
       <div class="panel-heading"><div><span class="section-index">03 /</span><h2 id="ranking-title">Twoje przejazdy</h2></div><span class="pill">RANKING CZASÓW</span></div>
       <div class="ranking-body">
@@ -63,9 +76,14 @@
         <button class="button small secondary" id="ranking-retry" hidden>Spróbuj ponownie</button>
       </div>
     </section>
+    </section>
+    <section id="history-view" data-app-view="history" aria-labelledby="history-title" hidden>
+      <div class="view-heading"><div><span class="eyebrow">OD STARTU DO PODIUM</span><h1 id="history-title" data-view-heading tabindex="-1">Historia mistrzostw</h1><p>Wracaj do pojedynków, klasyfikacji i czasów okrążeń.</p></div><a class="button secondary" href="#/championship" data-route="championship">Nowe mistrzostwa <span aria-hidden="true"><svg class="arrow-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 18 18 6M6 6h12v12"/></svg></span></a></div>
     <section class="history-panel duel-history-panel" aria-labelledby="duel-history-title"><div class="panel-heading"><div><span class="section-index">04 /</span><h2 id="duel-history-title">Mistrzostwa i historia</h2></div></div><div id="duel-history" class="duel-history-body"><p class="ranking-status">Zaloguj się, aby zobaczyć historię meczów.</p></div></section>
-    <footer><span class="footer-brand">RACE FOCUS</span><span>Każda setna sekundy ma znaczenie.</span><span>SPRINT 01 <i></i></span></footer>
+    </section>
+    <footer><span class="footer-brand">RACE FOCUS</span><span>Każda setna sekundy ma znaczenie.</span></footer>
   </main>
+  <dialog id="leave-dialog" class="leave-dialog" aria-labelledby="leave-title" aria-describedby="leave-description"><span class="eyebrow">POWRÓT DO PADOKU</span><h2 id="leave-title">Zakończyć jazdę?</h2><p id="leave-description"></p><div class="result-actions"><button class="button primary" data-action="cancel-leave" autofocus>Zostaję na torze</button><button class="button secondary" data-action="confirm-leave">Opuść sesję</button></div></dialog>
   <div id="connection-banner" class="connection-banner" hidden><span id="connection-message">Połączenie przerwane.</span><button class="button small secondary" data-action="reconnect">Połącz ponownie</button></div>
   <div class="toast" id="toast" role="status" hidden></div>
   <dialog id="install-dialog" class="install-dialog" aria-labelledby="install-title"><button class="dialog-close" id="close-install" aria-label="Zamknij instrukcję">×</button><span class="eyebrow">ZAWSZE POD RĘKĄ</span><h2 id="install-title">Race Focus na telefonie</h2><ol id="install-steps"></ol><p id="install-note" class="install-note">Gra wymaga internetu. Po instalacji możesz potrzebować ponownego logowania. Każdy gracz korzysta z własnego konta.</p></dialog>

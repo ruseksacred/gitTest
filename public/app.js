@@ -4,6 +4,7 @@ import { createRanking } from './ranking.js';
 import { initDuels, trackPlan, renderDuelReport, points } from './duels.js';
 import { renderChampionship, tickChampionship } from './championship.js';
 import { renderTraining, tickTraining } from './training.js';
+import { createNavigation } from './navigation.js';
 
 const $ = selector => document.querySelector(selector);
 const pwa = initPwa();
@@ -11,6 +12,7 @@ const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&a
 const seconds = score => score == null ? '—' : (score / 100).toFixed(2);
 let user = null, mode = 'solo', size = 4, game = null, stats = null, authMode = 'login', renderKey = '', serverOffset = 0, toastTimer, connected = false;
 let connectionState = 'idle';
+let navigation, lastSetup = 'solo', leaveDestination = null, pendingDestination = null;
 const dialog = $('#auth-dialog');
 const ranking = createRanking({ api, getUser: () => user });
 const duels = initDuels({ api, getUser: () => user, toast });
@@ -23,20 +25,21 @@ async function api(path, body) {
   return data;
 }
 async function command(action, payload = {}) {
-  if (!navigator.onLine) { toast('Brak internetu. Gra wymaga połączenia z serwerem.'); return; }
-  if (!user) { openAuth(); return; }
+  if (!navigator.onLine) { toast('Brak internetu. Gra wymaga połączenia z serwerem.'); return false; }
+  if (!user) { openAuth(); return false; }
   try {
     // Probe before starting a round. Never replay a timed hit or send readiness
     // for a result that changed while the transport was reconnecting.
     if (['solo', 'create', 'join', 'rematch'].includes(action)) await connection.ensureAlive();
     if (action === 'rematch' && (game?.phase !== 'complete' || game.matchId !== payload.matchId || !game.canRematch)) { toast('Pokój nie jest już dostępny do rewanżu. Możesz utworzyć nowy.'); return; }
     connection.send(action, payload);
-  } catch (error) { toast(error.message); }
+    return true;
+  } catch (error) { toast(error.message); return false; }
 }
 const connection = createGameConnection({
   onMessage(data) {
     if (data.type === 'refresh-stats') refreshStats();
-    if (data.type === 'error') toast(data.message);
+    if (data.type === 'error') { pendingDestination = null; toast(data.message); }
     if (data.type === 'state') {
       const old = game;
       game = data.game;
@@ -80,7 +83,6 @@ function updateAccount() {
   $('#setup-footnote').textContent = user ? connected ? 'Twój wynik zapisze się automatycznie. Gotowy na start?' : connectionState === 'connecting' ? 'Łączenie z centrum treningowym…' : 'Brak połączenia z grą. Wybierz „Połącz ponownie”.' : 'Zaloguj się, żeby zapisywać wyniki i śledzić postępy.';
 }
 function setup() {
-  document.querySelectorAll('[data-mode]').forEach(b => { const selected = b.dataset.mode === mode; b.classList.toggle('selected', selected); b.setAttribute('aria-selected', selected); });
   document.querySelectorAll('[data-size]').forEach(b => { const selected = +b.dataset.size === size; b.classList.toggle('selected', selected); b.setAttribute('aria-pressed', selected); });
   $('#size-description').textContent = `${size ** 2} liczb · ${{ 4: 'standard', 5: 'wyzwanie', 6: 'ekspert', 7: 'mistrz' }[size]}`;
   $('#mode-title').textContent = mode === 'solo' ? 'Ty kontra stoper.' : 'Wasze własne mistrzostwa.';
@@ -108,23 +110,80 @@ function soloConfig() {
 }
 async function refreshStats() { if (!user) return; ranking.refresh(); duels.refresh(); const id = user.id; try { const data = await api('stats'); if (user?.id === id) { stats = data; renderStats(); } } catch (error) { if (user?.id === id) toast(error.message); } }
 function renderStats() {
-  const record = stats?.records.find(r => r.size === size);
-  $('#record-size').textContent = `${size} × ${size}`;
+  const recordSize = +$('#ranking-size').value;
+  const record = stats?.records.find(r => r.size === recordSize);
+  $('#record-size').textContent = `${recordSize} × ${recordSize}`;
   $('#best-time').textContent = seconds(record?.best);
   $('#record-meta').textContent = record ? `${record.runs} ukończonych okrążeń · średnio ${seconds(record.average)} s` : 'Twój pierwszy rekord czeka na start.';
   for (const key of ['wins', 'losses', 'draws']) $(`#total-${key}`).textContent = stats?.totals[key] || 0;
   if (!user) { ranking.clear(); duels.clear(); }
 }
+function activeSession() {
+  return !!game && (game.phase !== 'complete' || game.saved === false || game.duel?.status === 'active' || game.championship?.status === 'active');
+}
+function applyRoute(route) {
+  if (route === 'race' && !game) { navigation.go('home', { force: true, replace: true }); return; }
+  const titles = { home: 'Centrum kierowcy', solo: 'Trening solo', championship: 'Mistrzostwa', stats: 'Statystyki', history: 'Historia mistrzostw', race: activeSession() ? 'Na torze' : 'Wyniki sesji' };
+  $('#current-section').textContent = titles[route];
+  document.title = `${titles[route]} — Race Focus`;
+  const racing = route === 'race';
+  document.body.classList.toggle('in-game', racing);
+  document.body.classList.toggle('race-focus', racing && activeSession());
+  $('#setup').hidden = !['solo', 'championship'].includes(route);
+  $('#game').hidden = !racing;
+  $('#resume-session').hidden = !game || racing;
+  // Readiness can start a rematch while a player is viewing a saved report.
+  if (racing && activeSession()) {
+    $('#duel-report-dialog').close();
+    $('#install-dialog').close();
+  }
+  if (route === 'solo' || route === 'championship') {
+    lastSetup = route;
+    mode = route === 'solo' ? 'solo' : 'duel';
+    $('#play-title').textContent = titles[route];
+    setup();
+  }
+}
+async function leaveTo(destination) {
+  leaveDestination = null;
+  $('#leave-dialog').close();
+  if (!game) { navigation.go(destination, { force: true }); return; }
+  if (game.phase === 'saving' || game.saved === false) {
+    toast(game.phase === 'saving' ? 'Zaczekaj na zapis wyniku.' : 'Najpierw ponów zapis wyniku, aby zachować ukończone okrążenia.');
+    return;
+  }
+  pendingDestination = destination;
+  if (game.phase === 'complete' && !connected) { game = null; renderGame(); }
+  else if (!await command('leave')) pendingDestination = null;
+}
+function requestLeave(destination = lastSetup) {
+  if (!game) { navigation.go(destination, { force: true }); return; }
+  if (game.phase === 'saving' || game.saved === false) {
+    toast(game.phase === 'saving' ? 'Zaczekaj na zapis wyniku.' : 'Najpierw ponów zapis wyniku, aby zachować ukończone okrążenia.');
+    return;
+  }
+  if (activeSession() && game.phase !== 'waiting') {
+    leaveDestination = destination;
+    $('#leave-description').textContent = game.mode === 'duel' ? 'Opuszczenie rozpoczętych mistrzostw oznacza walkower, także między wyścigami. Dotychczasowe wyniki pozostaną w historii.' : 'Ukończone okrążenia zostaną zapisane. Bieżące kółko zostanie przerwane.';
+    if (!$('#leave-dialog').open) $('#leave-dialog').showModal();
+  } else leaveTo(destination);
+}
 function shell(content) {
   const duel = game.duel;
   const progress = duel && game.phase !== 'waiting' ? `<div class="duel-progress"><strong>Runda ${game.round} / ${duel.totalRounds}</strong> · Tor ${game.size}×${game.size} · okrążenie ${duel.lap} / ${duel.laps} · ${points(duel.points)} pkt za wygraną<br>${game.players.map(p => `${escape(p.username)}: ${points(duel.standings.find(x => x.id === p.id)?.points ?? 0)} pkt`).join(' · ')}</div>` : '';
-  return `<div class="game-body"><div class="game-top"><span class="eyebrow">${game.mode === 'solo' ? 'TRENING SOLO' : `POJEDYNEK / ${escape(game.code)} · RUNDA ${game.round}`} · ${game.size} × ${game.size}</span><button data-action="leave">${game.phase === 'complete' ? duel?.status === 'active' ? 'Opuść mecz' : 'Wróć do centrum' : 'Opuść'} →</button></div>${progress}${content}<div id="leave-confirm" class="confirm-leave" hidden><p>${game.mode === 'duel' ? 'Opuszczenie rozpoczętego meczu oznacza przegraną walkowerem, także między okrążeniami.' : 'Bieżący trening nie zostanie zapisany.'}</p><div><button class="button small secondary" data-action="confirm-leave">Opuść grę</button><button class="button small primary" data-action="cancel-leave">Zostań</button></div></div></div>`;
+  return `<div class="game-body"><div class="game-top"><span class="eyebrow">${game.mode === 'solo' ? 'TRENING SOLO' : `POJEDYNEK / ${escape(game.code)} · RUNDA ${game.round}`} · ${game.size} × ${game.size}</span><button data-action="leave">${game.phase === 'complete' ? duel?.status === 'active' ? 'Opuść mecz' : 'Wróć do ustawień' : 'Opuść'} →</button></div>${progress}${content}</div>`;
 }
 function renderGame() {
-  pwa.setGameActive(game && (game.phase !== 'complete' || game.saved === false || game.duel?.status === 'active' || game.championship?.status === 'active'));
-  document.body.classList.toggle('in-game', !!game);
-  $('#setup').hidden = !!game; $('#game').hidden = !game;
-  if (!game) { renderKey = ''; $('#game').innerHTML = ''; setup(); return; }
+  pwa.setGameActive(activeSession());
+  if (!game) {
+    renderKey = ''; $('#game').innerHTML = ''; $('#leave-dialog').close(); leaveDestination = null;
+    const destination = pendingDestination || (navigation.current === 'race' ? lastSetup : navigation.current);
+    pendingDestination = null;
+    navigation.go(destination, { force: true, replace: true });
+    return;
+  }
+  if (activeSession() && navigation.current !== 'race') navigation.go('race', { force: true });
+  else navigation.refresh();
   if (game.training) { renderTraining(game, connected); renderKey = ''; return; }
   if (game.championship) { renderChampionship(game, connected, user.id); renderKey = ''; return; }
   const me = game.players.find(p => p.me), opponent = game.players.find(p => !p.me);
@@ -194,7 +253,6 @@ function updateAuth() {
 document.addEventListener('click', async event => {
   const button = event.target.closest('button');
   if (!button || button.disabled) return;
-  if (button.dataset.mode) { mode = button.dataset.mode; setup(); return; }
   if (button.dataset.size) { size = +button.dataset.size; setup(); return; }
   if (button.dataset.number) { command('hit', { number: +button.dataset.number, ...(game?.championship || game?.training ? { lap: +button.dataset.lap, raceId: button.dataset.raceId } : {}) }); return; }
   try {
@@ -207,13 +265,12 @@ document.addEventListener('click', async event => {
       case 'retry-save': command('retry-save'); break;
       case 'again': if (game.duel?.status === 'active' || game.championship?.status === 'active') { toast('Zakończ lub opuść bieżące mistrzostwa przed utworzeniem nowych.'); break; } command(game.mode === 'solo' ? 'solo' : 'create', game.training ? { size: game.size, laps: game.training.laps } : game.championship ? { tracks: game.championship.tracks, championship: true } : game.duel ? { tracks: game.duel.tracks.map(({ size, laps }) => ({ size, laps })) } : { size: game.size }); break;
       case 'rematch': command('rematch', { matchId: game.matchId }); break;
-      case 'home': if (game) toast('Użyj przycisku „Opuść” lub „Wróć do centrum” na planszy.'); else window.scrollTo({ top: 0, behavior: 'smooth' }); break;
       case 'copy-code': try { await navigator.clipboard.writeText(game.code); toast('Kod pokoju skopiowany.'); } catch { toast(`Kod pokoju: ${game.code}`); } break;
-      case 'leave': if (game && (['racing', 'countdown', 'preparing'].includes(game.phase) || ((game.duel?.status === 'active' || game.championship?.status === 'active') && game.phase !== 'waiting'))) $('#leave-confirm').hidden = false; else if (game?.phase === 'complete' && !connected) { game = null; renderGame(); } else command('leave'); break;
-      case 'confirm-leave': command('leave'); break;
-      case 'cancel-leave': $('#leave-confirm').hidden = true; break;
+      case 'leave': requestLeave(); break;
+      case 'confirm-leave': leaveTo(leaveDestination || lastSetup); break;
+      case 'cancel-leave': leaveDestination = null; $('#leave-dialog').close(); break;
       case 'logout':
-        if (game && (['countdown', 'racing', 'preparing'].includes(game.phase) || ((game.duel?.status === 'active' || game.championship?.status === 'active') && game.phase !== 'waiting'))) { toast('Najpierw zakończ lub opuść mistrzostwa.'); break; }
+        if (activeSession() && game.phase !== 'waiting') { toast('Najpierw zakończ lub opuść sesję.'); break; }
         await api('logout', {}); user = null; stats = null; game = null; connected = false; connection.stop(); $('#connection-banner').hidden = true; updateAccount(); renderGame(); renderStats(); break;
       case 'reconnect':
         user = (await api('me')).user;
@@ -226,11 +283,21 @@ document.addEventListener('click', async event => {
 });
 $('#join-form').addEventListener('submit', event => { event.preventDefault(); command('join', { code: $('#room-code').value }); });
 $('#solo-laps').addEventListener('input', updateSoloPlan);
+$('#ranking-size').addEventListener('change', renderStats);
+$('#leave-dialog').addEventListener('cancel', () => { leaveDestination = null; });
 $('#auth-form').addEventListener('submit', async event => {
   event.preventDefault(); $('#auth-submit').disabled = true; $('#auth-error').textContent = '';
   try { const data = await api(authMode, { username: $('#username').value, password: $('#password').value }); user = data.user; $('#password').value = ''; dialog.close(); updateAccount(); connect(); await refreshStats(); toast(authMode === 'register' ? 'Konto gotowe. Wybierz tryb i ruszaj na start.' : 'Witaj z powrotem na torze.'); }
   catch (error) { $('#auth-error').textContent = error.message; }
   finally { $('#auth-submit').disabled = false; }
 });
-setup(); requestAnimationFrame(tick);
+navigation = createNavigation({
+  beforeNavigate(route) {
+    if (route === 'race' && !game) return false;
+    if (route !== 'race' && activeSession()) { requestLeave(route); return false; }
+    return true;
+  },
+  onChange: applyRoute,
+});
+setup(); navigation.start(); requestAnimationFrame(tick);
 try { user = (await api('me')).user; updateAccount(); if (user) { connect(); await refreshStats(); } } catch { toast('Serwer jest niedostępny. Spróbuj odświeżyć stronę.'); }

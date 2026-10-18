@@ -79,7 +79,7 @@ Nowe commity na `race-focus-free-hosting` powinny uruchamiać wdrożenie Render,
 
 Wybierz tory i liczbę okrążeń mistrzostw. Na jednym torze jedziecie płynnie, niezależnie od postępu rywala. Gotowość obu osób jest wymagana przed kolejnym wyścigiem. Wynik wyścigu to suma czasów kółek z karami, a punkty przyznaje się raz po całym wyścigu: przy dwóch graczach 2 pkt za pierwsze i 1 pkt za drugie miejsce; remis daje po 1,5, DNF 0. Raport mistrzostw i kółka są dostępne w historii. Opuszczenie rozpoczętych mistrzostw oznacza walkower.
 
-Jeżeli sieć lub przeglądarka nie pozwala otworzyć WebSocket, aplikacja automatycznie używa zwykłego HTTPS. Nie trzeba zmieniać konfiguracji Render ani Neon. Wersję serwera można sprawdzić pod `/api/version`: wersja z okrążeniami solo zwraca `release: "solo-laps-1"`. Pole `commit` pozwala porównać wdrożenie z ostatnim commitem w Render; endpoint nie ujawnia danych kont ani połączenia z bazą.
+Jeżeli sieć lub przeglądarka nie pozwala otworzyć WebSocket, aplikacja automatycznie używa zwykłego HTTPS. Nie trzeba zmieniać konfiguracji Render ani Neon. Wersję serwera można sprawdzić pod `/api/version`: wersja z osobnymi ekranami i menu zwraca `release: "app-navigation-1"`. Pole `commit` pozwala porównać wdrożenie z ostatnim commitem w Render; endpoint nie ujawnia danych kont ani połączenia z bazą.
 
 Trening solo pozwala wybrać jeden tor 4×4–7×7 i 1–10 okrążeń. Każde ukończone kółko jest osobnym wynikiem solo z pomiarem PB; suma treningu pozostaje w podsumowaniu. Ukończone kółka zapisują się również przy przerwaniu treningu lub upływie limitu. Funkcja używa istniejących tabel wyników i telemetrii, bez nowych ustawień hostingu.
 

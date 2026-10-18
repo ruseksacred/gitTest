@@ -22,7 +22,7 @@ try {
     assert.equal(response.status(), 201);
     const page = await context.newPage(); pages.push(page);
     page.on('pageerror', error => errors.push(error.message));
-    await page.goto(base);
+    await page.goto(`${base}/#/solo`);
     await page.waitForFunction(() => document.querySelector('#setup-footnote').textContent.includes('Gotowy'));
     for (const size of [4, 5, 6, 7]) {
       await page.locator(`[data-size="${size}"]`).click();

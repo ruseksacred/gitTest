@@ -33,6 +33,7 @@ try {
   await register(a, 'ApexDriver');
   await register(b, 'TrackPilot');
   for (const page of [a, b]) {
+    await page.locator('.app-menu [data-route="solo"]').click();
     assert.deepEqual(await page.locator('[data-size]').evaluateAll(buttons => buttons.map(b => +b.dataset.size)), [4, 5, 6, 7]);
     assert.deepEqual(await page.locator('#ranking-size option').evaluateAll(options => options.map(o => +o.value)), [4, 5, 6, 7]);
     for (const size of [6, 7]) {
@@ -52,15 +53,15 @@ try {
   for (let n = 1; n <= 36; n++) { await a.locator(`[data-number="${n}"]`).click(); await a.waitForFunction(n => !document.querySelector('#next-number') || document.querySelector('#next-number').textContent === String(n + 1), n); }
   await a.locator('.result-time').waitFor();
   assert.match(await a.locator('.result-header h3').textContent(), /Dobry przejazd/);
-  await a.waitForFunction(() => document.querySelector('#best-time').textContent !== '—');
+  await a.waitForFunction(() => document.querySelector('#ranking-size').value === '6' && document.querySelector('#best-time').textContent !== '—');
   await a.locator('.result-actions [data-action="leave"]').click();
-  await a.locator('[data-mode="duel"]').click();
+  await a.locator('.app-menu [data-route="championship"]').click();
   for (const size of [4, 5, 6]) await a.locator(`#duel-track-${size}`).uncheck();
   await a.locator('#duel-track-7').check();
   await a.locator('#duel-laps-7').fill('3');
   await a.locator('[data-action="start"]').click();
   const code = await a.locator('#display-code').textContent();
-  await b.locator('[data-mode="duel"]').click();
+  await b.locator('.app-menu [data-route="championship"]').click();
   await b.locator('#room-code').fill(code);
   await b.locator('#join-form button').click();
   await a.locator('#ready-button').click();
@@ -109,8 +110,8 @@ try {
   await a.locator('#password').fill('Browser-password-123');
   await a.locator('#auth-submit').click();
   await a.waitForFunction(async () => (await (await fetch('/api/stats')).json()).totals?.games === 3);
-  await a.locator('[data-mode="solo"]').click();
-  await a.locator('[data-size="6"]').click();
+  await a.locator('.app-menu [data-route="stats"]').click();
+  await a.locator('#ranking-size').selectOption('6');
   assert.notEqual(await a.locator('#best-time').textContent(), '—');
   assert.deepEqual(errors, []);
   console.log('Browser checks passed: sizes 4–7, solo with penalty, three independent 7×7 laps, championship points, independent rankings, departure, stats after login, narrow phone layout.');

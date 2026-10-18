@@ -26,7 +26,7 @@ try {
     await page.locator('#password').fill('Browser-password-123');
     await page.locator('#auth-submit').click();
     await page.waitForFunction(() => document.querySelector('#setup-footnote').textContent.includes('Gotowy'));
-    await page.locator('[data-mode="duel"]').click();
+    await page.locator('.app-menu [data-route="championship"]').click();
     await page.locator('#duel-track-5').uncheck();
     await page.locator('#duel-laps-4').fill('1');
   }

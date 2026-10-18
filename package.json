@@ -17,6 +17,7 @@
     "test:ranking": "node test/ranking.js",
     "test:match": "node test/duel-match.js",
     "test:solo": "node test/solo-training.js",
+    "test:navigation": "node test/navigation.js",
     "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {

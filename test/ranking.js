@@ -28,7 +28,7 @@ try {
   await seedRun(app.db, b.id, { size: 6, elapsed: 6000 });
   const page = await desktop.newPage(), phone = await mobile.newPage();
   for (const p of [page, phone]) p.on('pageerror', error => errors.push(error.message));
-  await Promise.all([page.goto(base), phone.goto(base)]);
+  await Promise.all([page.goto(`${base}/#/stats`), phone.goto(`${base}/#/stats`)]);
   await page.waitForFunction(() => document.querySelector('#ranking-status').textContent.startsWith('23 przejazdy'));
   assert.equal(await page.locator('#ranking-rows tr').count(), 20);
   await page.locator('#ranking-next').click();
@@ -62,12 +62,14 @@ try {
 
   // A real saved run switches category and opens page two at its ranked position.
   await page.waitForFunction(() => document.querySelector('#setup-footnote').textContent.includes('Gotowy'));
+  await page.locator('.app-menu [data-route="solo"]').click();
   await page.locator('[data-action="start"]').click();
   await page.locator('[data-number="1"]').waitFor();
   await page.locator('[data-number="2"]').click();
   await page.waitForFunction(() => document.querySelector('#race-errors').textContent === '+1 s');
   for (let n = 1; n <= 16; n++) await page.locator(`[data-number="${n}"]`).click();
   await page.locator('.result-time').waitFor();
+  await page.locator('.app-menu [data-route="stats"]').click();
   await page.locator('#ranking-rows .ranking-new').waitFor();
   assert.equal(await page.locator('#ranking-mode').inputValue(), 'solo');
   assert.equal(await page.locator('#ranking-size').inputValue(), '4');

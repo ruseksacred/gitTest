@@ -21,7 +21,7 @@ try {
     assert.equal(response.status(), 201); users.push((await response.json()).user);
   }
   const [a, b] = await Promise.all(contexts.map(c => c.newPage()));
-  for (const page of [a, b]) { page.on('pageerror', e => errors.push(e.message)); await page.goto(base); await page.waitForFunction(() => document.querySelector('#setup-footnote').textContent.includes('Gotowy')); await page.locator('[data-mode="duel"]').click(); }
+  for (const page of [a, b]) { page.on('pageerror', e => errors.push(e.message)); await page.goto(base); await page.waitForFunction(() => document.querySelector('#setup-footnote').textContent.includes('Gotowy')); await page.locator('.app-menu [data-route="championship"]').click(); }
   for (const size of [4, 5]) await a.locator(`#duel-track-${size}`).uncheck();
   await a.locator('#start-button').click();
   await a.waitForFunction(() => document.querySelector('#toast').textContent.includes('przynajmniej jeden tor'));
@@ -71,6 +71,7 @@ try {
   }
   assert.match(await a.locator('.result-time').textContent(), /7 : 5/);
   assert.match(await a.locator('.result-header h3').textContent(), /Wygrywasz mistrzostwa/);
+  for (const page of [a, b]) await page.locator('.app-menu [data-route="history"]').click();
   await a.locator('#duel-history [data-duel-report]').waitFor();
   const id = await a.locator('#duel-history [data-duel-report]').getAttribute('data-duel-report');
   const report = (await (await a.request.get(`${base}/api/duels/${id}`)).json()).report;

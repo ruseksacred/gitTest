@@ -71,6 +71,7 @@ try {
   await page.locator('#password').fill('Pwa-test-password-123');
   await page.locator('#auth-submit').click();
   await page.waitForFunction(() => document.querySelector('#setup-footnote').textContent.includes('Gotowy'));
+  await page.locator('.app-menu [data-route="solo"]').click();
   await page.locator('[data-size="4"]').click();
   await page.locator('#start-button').click();
   await page.locator('[data-number="1"]').waitFor();
@@ -110,6 +111,7 @@ try {
   await page.locator('.offline-retry').click();
   await page.waitForFunction(() => document.querySelector('#setup-footnote').textContent.includes('Gotowy'));
   assert.equal((await context.cookies()).find(c => c.name === 'rf_session')?.value, cookieBeforeOffline);
+  await page.locator('.app-menu [data-route="solo"]').click();
   await page.locator('[data-size="4"]').click();
   await page.waitForFunction(() => document.querySelector('#best-time').textContent !== '—');
   assert.deepEqual(errors, []);

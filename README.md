@@ -16,6 +16,8 @@ Serwer nasłuchuje na porcie **3000**, na wszystkich interfejsach. `npm run dev`
 
 ## Pierwszy sprint
 
+- Osobne ekrany: Centrum, Solo, Mistrzostwa, Statystyki i Historia. Na komputerze menu jest po lewej, na telefonie u dołu. Nawigacja i przyciski wstecz/dalej nie przeładowują strony ani połączenia. Linki `/#/solo`, `/#/championship`, `/#/stats` i `/#/history` otwierają wybraną sekcję.
+- W trakcie sesji ekran skupia się na planszy i kompaktowym pomiarze czasu, kar, delty oraz straty do rywala. Szczegóły okrążeń są rozwijane pod planszą na telefonie i widoczne obok na komputerze. Zmiana ekranu w trakcie jazdy wymaga potwierdzenia opuszczenia sesji; podczas zapisywania lub błędu zapisu trzeba najpierw dokończyć zapis. Po zakończeniu mistrzostw można przeglądać statystyki i historię, a następnie wrócić do pokoju przez „Twoja ostatnia sesja” i zagrać rewanż. Odświeżenie lub zamknięcie strony nadal przerywa aktywną sesję.
 - Konta: login 3–20 znaków (litery ASCII, cyfry, podkreślenie), hasło 8–128 znaków, logowanie i wylogowanie.
 - Trening solo: wybór toru 4×4, 5×5, 6×6 lub 7×7 i 1–10 okrążeń. Jeden start i płynne przejście między planszami; każda plansza jest nowym kółkiem. W czasie jazdy widać czas całego treningu i aktualnego okrążenia z karami, PB, deltę do własnego najlepszego kółka na tym torze oraz tabelę ukończonych kółek. Podsumowanie pokazuje czasy jazdy, kary, wyniki, delty na mecie, sumę, najlepsze i średnie kółko. Powtórzenie zachowuje wybrany tor i liczbę okrążeń. Każde ukończone kółko jest osobnym wynikiem w rankingu solo; suma treningu nie konkuruje z pojedynczymi okrążeniami.
 - Mistrzostwa 1 vs 1: twórca wybiera tory 4×4–7×7 i po 1–10 okrążeń. Jeden tor jest jednym wyścigiem, a ukończenie planszy jednym okrążeniem. Obaj gracze widzą plan i potwierdzają gotowość przed wyścigiem.
@@ -70,6 +72,7 @@ npm run test:http
 npm run test:ranking
 npm run test:match
 npm run test:solo
+npm run test:navigation
 ```
 
 Testy serwera sprawdzają autoryzację, walidację, wszystkie rozmiary plansz, kary, wspólny start, remis, wyniki, walkower, limit czasu, granice pokoi, ponawianie zapisu po awarii bazy, HTTPS za reverse proxy oraz odtworzenie danych po restarcie. Korzystają z oddzielnych baz testowych. Zmienna `TEST_DATABASE_URL` pozwala uruchomić ten sam zestaw oraz test przeglądarkowy na PostgreSQL; instrukcja w [DEPLOY.md](DEPLOY.md).
@@ -87,6 +90,8 @@ Test przeglądarkowy używa Playwright i systemowego Chromium pod `/usr/bin/chro
 `npm run test:match` rozgrywa cztery wyścigi i pięć płynnych okrążeń między komputerem przez WebSocket i telefonem przez HTTPS. Sprawdza niezależny postęp, wspólne układy dla tych samych kółek, żywe straty i delty PB, gotowość wyłącznie przed torami, wynik mistrzostw 7 : 5, raport i odczyt po przeładowaniu. Testy serwera sprawdzają również dokładne punkty pomiarowe, kary w delcie, zapis referencji PB, prywatność, anulowanie przygotowania wyścigu, walkower, rollback i ponawianie zapisu bez powielania kółek ani punktów. Obsługują `TEST_DATABASE_URL`.
 
 `npm run test:solo` sprawdza wybór toru i liczby okrążeń, trzy płynne kółka z karą i deltą PB, osobne wyniki w rankingu, powtórzenie konfiguracji, wczytanie PB oraz planszę 7×7 na telefonie o szerokości 320 px przez HTTPS. Testy serwera dodatkowo sprawdzają przerwanie treningu, limit czasu, pomijanie spóźnionych kliknięć i ponawianie zapisu bez duplikatów. Oba zestawy obsługują `TEST_DATABASE_URL`.
+
+`npm run test:navigation` sprawdza osobne widoki, linki do sekcji, nawigację wstecz/dalej bez przeładowania, zachowanie ustawień, ochronę przed przypadkowym opuszczeniem wyścigu, widoczność całej planszy 7×7 przy 320×740 px, zapis ukończonego kółka po potwierdzonym wyjściu, przeglądanie raportów i rewanż w zachowanym pokoju.
 
 `GET /api/runs` wymaga zalogowania. Parametry: `mode=all|solo|duel` (domyślnie `all`), `size=4|5|6|7` (domyślnie `4`), `page` (od 1), `limit` (1–50, domyślnie 20), opcjonalnie `highlight` (identyfikator meczu). Odpowiedź zawiera podsumowanie całej wybranej kategorii i jedną stronę wyników. `highlight` otwiera stronę z danym przejazdem, jeżeli należy do użytkownika i pasuje do filtrów. Starszy `/api/stats` zachowuje dotychczasowy format.
 
